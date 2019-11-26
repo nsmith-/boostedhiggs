@@ -5,6 +5,26 @@ from uproot_methods import TVector2Array, TLorentzVectorArray
 def buildevents(df):
     events = ak.Table()
 
+    if 'genWeight' in df:
+        events['genWeight'] = df['genWeight']
+        events['Pileup_nPU'] = df['Pileup_nPU']
+
+        events['genpart'] = ak.JaggedArray.fromcounts(
+            df['nGenPart'],
+            ak.Table.named(
+                'particle',
+                p4=TLorentzVectorArray.from_ptetaphim(
+                    df['GenPart_pt'],
+                    df['GenPart_eta'],
+                    df['GenPart_phi'],
+                    df['GenPart_mass'],
+                ),
+                pdgId=df['GenPart_pdgId'],
+                genPartIdxMother=df['GenPart_genPartIdxMother'],
+                statusFlags=df['GenPart_statusFlags'],
+            ),
+        )
+
     events['fatjets'] = ak.JaggedArray.fromcounts(
         df['nFatJet'],
         ak.Table.named(
@@ -18,7 +38,9 @@ def buildevents(df):
             msoftdrop=ak.MaskedArray(df['FatJet_msoftdrop'] <= 0, df['FatJet_msoftdrop']),
             area=df['FatJet_area'],
             n2=df['FatJet_n2b1'],
-            ddb=df['FatJet_btagDDBvL'],
+            btagDDBvL=df['FatJet_btagDDBvL'],
+            btagDDCvL=df['FatJet_btagDDCvL'],
+            btagDDCvB=df['FatJet_btagDDCvB'],
             jetId=df['FatJet_jetId'],
         ),
     )
@@ -35,6 +57,7 @@ def buildevents(df):
             ),
             deepcsvb=df['Jet_btagDeepB'],
             hadronFlavor=df['Jet_hadronFlavour'],
+            jetId=df['Jet_jetId'],
         ),
     )
 
@@ -68,6 +91,7 @@ def buildevents(df):
                 df['Muon_mass'],
             ),
             looseId=df['Muon_looseId'],
+            pfRelIso04_all=df['Muon_pfRelIso04_all'],
         ),
     )
 

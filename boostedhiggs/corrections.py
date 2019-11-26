@@ -27,3 +27,38 @@ def corrected_msoftdrop(fatjets):
 
 def n2ddt_shift(fatjets, year='2017'):
     return compiled[f'{year}_n2ddt_rho_pt'](fatjets.rho, fatjets.p4.pt)
+
+
+def add_pileup_weight(weights, nPU, year='2017', dataset=None):
+    if year == '2017' and dataset in compiled['2017_pileupweight_dataset']:
+        weights.add(
+            'pileup_weight',
+            compiled['2017_pileupweight_dataset'][dataset](nPU),
+            compiled['2017_pileupweight_dataset_puUp'][dataset](nPU),
+            compiled['2017_pileupweight_dataset_puDown'][dataset](nPU),
+        )
+    else:
+        weights.add(
+            'pileup_weight',
+            compiled[f'{year}_pileupweight'](nPU),
+            compiled[f'{year}_pileupweight_puUp'](nPU),
+            compiled[f'{year}_pileupweight_puDown'](nPU),
+        )
+
+
+def add_VJets_NLOkFactor(weights, genBosonPt, year, dataset):
+    if year == '2017' and 'ZJetsToQQ_HT' in dataset:
+        nlo_over_lo_qcd = compiled['2017_Z_nlo_qcd'](genBosonPt)
+        nlo_over_lo_ewk = compiled['Z_nlo_over_lo_ewk'](genBosonPt)
+    elif year == '2017' and 'WJetsToQQ_HT' in dataset:
+        nlo_over_lo_qcd = compiled['2017_W_nlo_qcd'](genBosonPt)
+        nlo_over_lo_ewk = compiled['W_nlo_over_lo_ewk'](genBosonPt)
+    elif year == '2016' and 'DYJetsToQQ' in dataset:
+        nlo_over_lo_qcd = compiled['2016_Z_nlo_qcd'](genBosonPt)
+        nlo_over_lo_ewk = compiled['Z_nlo_over_lo_ewk'](genBosonPt)
+    elif year == '2016' and 'WJetsToQQ' in dataset:
+        nlo_over_lo_qcd = compiled['2016_W_nlo_qcd'](genBosonPt)
+        nlo_over_lo_ewk = compiled['W_nlo_over_lo_ewk'](genBosonPt)
+    else:
+        return
+    weights.add('VJets_NLOkFactor', nlo_over_lo_qcd * nlo_over_lo_ewk)
