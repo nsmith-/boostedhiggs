@@ -1,8 +1,9 @@
+import numpy as np
 import awkward as ak
 from uproot_methods import TVector2Array, TLorentzVectorArray
 
 
-def buildevents(df):
+def buildevents(df, fatjet='FatJet', usemask=False):
     events = ak.Table()
 
     if 'genWeight' in df:
@@ -26,22 +27,22 @@ def buildevents(df):
         )
 
     events['fatjets'] = ak.JaggedArray.fromcounts(
-        df['nFatJet'],
+        df[f'n{fatjet}'],
         ak.Table.named(
             'fatjet',
             p4=TLorentzVectorArray.from_ptetaphim(
-                df['FatJet_pt'],
-                df['FatJet_eta'],
-                df['FatJet_phi'],
-                df['FatJet_mass'],
+                df[f'{fatjet}_pt'],
+                df[f'{fatjet}_eta'],
+                df[f'{fatjet}_phi'],
+                df[f'{fatjet}_mass'],
             ),
-            msoftdrop=ak.MaskedArray(df['FatJet_msoftdrop'] <= 0, df['FatJet_msoftdrop']),
-            area=df['FatJet_area'],
-            n2=df['FatJet_n2b1'],
-            btagDDBvL=df['FatJet_btagDDBvL'],
-            btagDDCvL=df['FatJet_btagDDCvL'],
-            btagDDCvB=df['FatJet_btagDDCvB'],
-            jetId=df['FatJet_jetId'],
+            msoftdrop=ak.MaskedArray(df[f'{fatjet}_msoftdrop'] <= 0, df[f'{fatjet}_msoftdrop']) if usemask else np.maximum(1e-5, df[f'{fatjet}_msoftdrop']),
+            area=df[f'{fatjet}_area'],
+            n2=df[f'{fatjet}_n2b1'],
+            btagDDBvL=df[f'{fatjet}_btagDDBvL'],
+            btagDDCvL=df[f'{fatjet}_btagDDCvL'],
+            btagDDCvB=df[f'{fatjet}_btagDDCvB'],
+            jetId=df[f'{fatjet}_jetId'],
         ),
     )
 
