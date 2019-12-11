@@ -44,7 +44,7 @@ def _embed_subjets(events):
         axis=1
     )
     subjetidx = events.fatjets.copy(content=sjcontent)
-    subjetidx = subjetidx[subjetidx >= 0] + events.fatjets.starts
+    subjetidx = subjetidx[subjetidx >= 0] + events.subjets.starts
     events.fatjets['subjets'] = subjetidx.copy(
         content=subjetidx.content.copy(
             content=events.subjets.content[subjetidx.flatten().flatten()]
