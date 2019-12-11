@@ -8,6 +8,7 @@ from .methods import (
     Muon,
     Photon,
     Tau,
+    GenParticle,
 )
 
 
@@ -20,6 +21,8 @@ def _mixin(methods, awkwardtype):
 
 
 class NanoCollection(ak.VirtualArray):
+    _already_flat = False
+
     @classmethod
     def _lazyflatten(cls, array):
         return array.array.content
@@ -78,43 +81,69 @@ class NanoCollection(ak.VirtualArray):
         for k, v in columns.items():
             if not isinstance(v, ak.VirtualArray):
                 raise RuntimeError
-            col = type(v)(NanoCollection._lazyflatten, (v,), type=ak.type.ArrayType(offsets[-1], v.type.to.to))
-            col.__doc__ = v.__doc__
-            table[k] = col
+            if isinstance(v, NanoCollection) and v._already_flat:
+                v.type.takes = offsets[-1]
+                table[k] = v
+            else:
+                col = type(v)(NanoCollection._lazyflatten, (v,), type=ak.type.ArrayType(offsets[-1], v.type.to.to))
+                col.__doc__ = v.__doc__
+                table[k] = col
         out = JaggedArray.fromoffsets(offsets, table)
         out.__doc__ = counts.__doc__
         return out
 
-    def _lazyindexed(self, indices, destination):
+    def _lazyindexed(self, index, destination):
+        if not isinstance(destination.array, ak.JaggedArray):
+            raise RuntimeError
+        if not isinstance(self.array, ak.JaggedArray):
+            raise NotImplementedError
+        globalindex = (index + destination.array.starts).flatten()
+        invalid = (index < 0).flatten()
+        globalindex[invalid] = -1
+        # useful for recursive algorithms if destination is self
+        self.array.content['_%s_globalindex' % destination.rowname] = globalindex
+        # note: parent virtual must derive from this type and have _already_flat = True
+        out = ak.IndexedMaskedArray(
+            globalindex,
+            destination.array.content,
+        )
+        return out
+
+    def _lazyindexednested(self, indices, destination):
         if not isinstance(destination.array, ak.JaggedArray):
             raise RuntimeError
         if not isinstance(self.array, ak.JaggedArray):
             raise NotImplementedError
         content = np.zeros(len(self.array.content) * len(indices), dtype=ak.JaggedArray.INDEXTYPE)
-        for i, k in enumerate(indices):
-            content[i::len(indices)] = np.array(self.array.content[k])
+        for i, index in enumerate(indices):
+            content[i::len(indices)] = index.flatten()
         globalindices = ak.JaggedArray.fromoffsets(
             self.array.offsets,
-            content=ak.JaggedArray.fromoffsets(
+            ak.JaggedArray.fromoffsets(
                 np.arange((len(self.array.content) + 1) * len(indices), step=len(indices)),
                 content,
             )
         )
         globalindices = globalindices[globalindices >= 0] + destination.array.starts
-        out = globalindices.copy(
-            content=type(destination.array).fromoffsets(
-                globalindices.content.offsets,
-                content=destination.array.content[globalindices.flatten().flatten()]
-            )
+        # note: parent virtual must derive from this type and have _already_flat = True
+        out = globalindices.content.copy(
+            content=destination.array.content[globalindices.flatten().flatten()]
         )
         return out
+
+    def _getcolumn(self, key):
+        _, _, columns, _ = self._args
+        return columns[key]
 
     def __setitem__(self, key, value):
         if self.ismaterialized:
             super(NanoCollection, self).__setitem__(key, value)
         _, _, columns, _ = self._args
         columns[key] = value
-        self._type.to.to[key] = value.type.to.to
+        if isinstance(value, NanoCollection) and value._already_flat:
+            self._type.to.to[key] = value.type.to
+        else:
+            self._type.to.to[key] = value.type.to.to
 
     def __delitem__(self, key):
         if self.ismaterialized:
@@ -143,7 +172,6 @@ class NanoEvents(ak.Table):
         'GenDressedLepton': LorentzVector,
         'GenJet': LorentzVector,
         'GenJetAK8': LorentzVector,
-        'GenPart': LorentzVector,
         'Jet': LorentzVector,
         'LHEPart': LorentzVector,
         'SV': LorentzVector,
@@ -155,6 +183,8 @@ class NanoEvents(ak.Table):
         'Photon': Photon,
         'Tau': Tau,
         'GenVisTau': Candidate,
+        # special
+        'GenPart': GenParticle,
     }
 
     @classmethod
@@ -170,12 +200,27 @@ class NanoEvents(ak.Table):
         # finalize
         del events.Photon['mass']
 
-        embedded_subjets = type(events.SubJet)(
-            events.FatJet._lazyindexed,
-            args=(['subJetIdx1', 'subJetIdx2'], events.SubJet),
-            type=ak.type.ArrayType(len(events), float('inf'), float('inf'), events.SubJet.type.to.to),
+        parent_type = ak.type.OptionType(events.GenPart.type.to.to)
+        parent_type.check = False  # break recursion
+        gen_parent = type(events.GenPart)(
+            events.GenPart._lazyindexed,
+            args=(events.GenPart._getcolumn('genPartIdxMother'), events.GenPart),
+            type=ak.type.ArrayType(float('inf'), parent_type),
         )
+        gen_parent._already_flat = True
+        gen_parent.__doc__ = events.GenPart.__doc__
+        events.GenPart['parent'] = gen_parent
+        del events.GenPart['genPartIdxMother']
+
+        embedded_subjets = type(events.SubJet)(
+            events.FatJet._lazyindexednested,
+            args=([events.FatJet._getcolumn('subJetIdx1'), events.FatJet._getcolumn('subJetIdx2')], events.SubJet),
+            type=ak.type.ArrayType(float('inf'), float('inf'), events.SubJet.type.to.to),
+        )
+        embedded_subjets._already_flat = True
         embedded_subjets.__doc__ = events.SubJet.__doc__
         events.FatJet['subjets'] = embedded_subjets
+        del events.FatJet['subJetIdx1']
+        del events.FatJet['subJetIdx2']
 
         return events
