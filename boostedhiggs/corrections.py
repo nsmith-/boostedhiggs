@@ -18,15 +18,13 @@ def _msoftdrop_weight(pt, eta):
 
 
 def corrected_msoftdrop(fatjets):
-    if not isinstance(fatjets, ak.JaggedArray):
-        raise ValueError
-    sf_flat = _msoftdrop_weight(fatjets.p4.pt.flatten(), fatjets.p4.eta.flatten())
+    sf_flat = _msoftdrop_weight(fatjets.pt.flatten(), fatjets.eta.flatten())
     sf_flat = np.maximum(1e-5, sf_flat)
-    return fatjets.msoftdrop * fatjets.copy(content=sf_flat)
+    return fatjets.msoftdrop * ak.JaggedArray.fromoffsets(fatjets.array.offsets, sf_flat)
 
 
 def n2ddt_shift(fatjets, year='2017'):
-    return compiled[f'{year}_n2ddt_rho_pt'](fatjets.rho, fatjets.p4.pt)
+    return compiled[f'{year}_n2ddt_rho_pt'](fatjets.rho, fatjets.pt)
 
 
 def add_pileup_weight(weights, nPU, year='2017', dataset=None):

@@ -23,33 +23,33 @@ class HbbProcessor(processor.ProcessorABC):
 
         self._triggers = {
             '2016': [
-                "HLT_PFHT800",
-                "HLT_PFHT900",
-                "HLT_AK8PFJet360_TrimMass30",
-                'HLT_AK8PFHT700_TrimR0p1PT0p03Mass50',
-                "HLT_PFHT650_WideJetMJJ950DEtaJJ1p5",
-                "HLT_PFHT650_WideJetMJJ900DEtaJJ1p5",
-                "HLT_AK8DiPFJet280_200_TrimMass30_BTagCSV_p20",
-                "HLT_PFJet450",
+                "PFHT800",
+                "PFHT900",
+                "AK8PFJet360_TrimMass30",
+                'AK8PFHT700_TrimR0p1PT0p03Mass50',
+                "PFHT650_WideJetMJJ950DEtaJJ1p5",
+                "PFHT650_WideJetMJJ900DEtaJJ1p5",
+                "AK8DiPFJet280_200_TrimMass30_BTagCSV_p20",
+                "PFJet450",
             ],
             '2017': [
-                "HLT_AK8PFJet330_PFAK8BTagCSV_p17",
-                "HLT_PFHT1050",
-                "HLT_AK8PFJet400_TrimMass30",
-                "HLT_AK8PFJet420_TrimMass30",
-                "HLT_AK8PFHT800_TrimMass50",
-                "HLT_PFJet500",
-                "HLT_AK8PFJet500",
+                "AK8PFJet330_PFAK8BTagCSV_p17",
+                "PFHT1050",
+                "AK8PFJet400_TrimMass30",
+                "AK8PFJet420_TrimMass30",
+                "AK8PFHT800_TrimMass50",
+                "PFJet500",
+                "AK8PFJet500",
             ],
             '2018': [
-                'HLT_AK8PFJet400_TrimMass30',
-                'HLT_AK8PFJet420_TrimMass30',
-                'HLT_AK8PFHT800_TrimMass50',
-                'HLT_PFHT1050',
-                'HLT_PFJet500',
-                'HLT_AK8PFJet500',
-                'HLT_AK8PFJet330_PFAK8BTagCSV_p17',
-                "HLT_AK8PFJet330_TrimMass30_PFAK8BoostedDoubleB_np4",
+                'AK8PFJet400_TrimMass30',
+                'AK8PFJet420_TrimMass30',
+                'AK8PFHT800_TrimMass50',
+                'PFHT1050',
+                'PFJet500',
+                'AK8PFJet500',
+                # 'AK8PFJet330_PFAK8BTagCSV_p17', not present in 2018D?
+                'AK8PFJet330_TrimMass30_PFAK8BoostedDoubleB_np4',
             ],
         }
 
@@ -62,76 +62,75 @@ class HbbProcessor(processor.ProcessorABC):
     def accumulator(self):
         return self._accumulator
 
-    def process(self, df):
-        dataset = df['dataset']
-        isRealData = 'genWeight' not in df
-        events = buildevents(df)
+    def process(self, events):
+        dataset = events.metadata['dataset']
+        isRealData = 'genWeight' not in events.columns
         output = self.accumulator.identity()
         selection = processor.PackedSelection()
 
-        trigger = np.ones(df.size, dtype='bool')
+        trigger = np.ones(events.size, dtype='bool')
         for t in self._triggers[self._year]:
-            trigger &= df[t]
+            trigger = trigger & events.HLT[t]
         selection.add('trigger', trigger)
 
-        fatjets = events.fatjets
+        fatjets = events.FatJet
         fatjets['msdcorr'] = corrected_msoftdrop(fatjets)
-        fatjets['rho'] = 2*np.log(fatjets.msdcorr / fatjets.p4.pt)
-        fatjets['n2ddt'] = fatjets.n2 - n2ddt_shift(fatjets, year=self._year)
+        fatjets['rho'] = 2*np.log(fatjets.msdcorr / fatjets.pt)
+        fatjets['n2ddt'] = fatjets.n2b1 - n2ddt_shift(fatjets, year=self._year)
 
         candidatejet = fatjets[:, 0:1]
         selection.add('jetkin', (
-            (candidatejet.p4.pt > 450)
-            & (candidatejet.p4.eta < 2.4)
+            (candidatejet.pt > 450)
+            & (candidatejet.eta < 2.4)
             & (candidatejet.msdcorr > 40.)
         ).any())
         selection.add('jetid', (candidatejet.jetId & 2).any())  # tight id
         selection.add('n2ddt', (candidatejet.n2ddt < 0.).any())
 
-        # only consider first 4 jets to be consistent with old framework
-        jets = events.jets[
-            (events.jets.p4.pt > 30.)
-            & (events.jets.localindex < 4)
-            & (events.jets.jetId & 2)  # tight id
+        jets = events.Jet[
+            (events.Jet.pt > 30.)
+            & (events.Jet.jetId & 2)  # tight id
         ]
+        # only consider first 4 jets to be consistent with old framework
+        jets = jets[:, :4]
         ak4_ak8_pair = jets.cross(candidatejet, nested=True)
-        dphi = ak4_ak8_pair.i0.p4.delta_phi(ak4_ak8_pair.i1.p4)
+        dphi = ak4_ak8_pair.i0.delta_phi(ak4_ak8_pair.i1)
         ak4_opposite = jets[(np.abs(dphi) > np.pi / 2).all()]
-        selection.add('antiak4btagMediumOppHem', ak4_opposite.deepcsvb.max() < self._btagWPs['med'][self._year])
+        selection.add('antiak4btagMediumOppHem', ak4_opposite.btagDeepB.max() < self._btagWPs['med'][self._year])
         ak4_away = jets[(np.abs(dphi) > 0.8).all()]
-        selection.add('ak4btagMedium08', ak4_away.deepcsvb.max() > self._btagWPs['med'][self._year])
+        selection.add('ak4btagMedium08', ak4_away.btagDeepB.max() > self._btagWPs['med'][self._year])
 
-        selection.add('met', events.met.rho < 140.)
+        selection.add('met', events.MET.pt < 140.)
         goodmuon = (
-            (events.muons.p4.pt > 10)
-            & (np.abs(events.muons.p4.eta) < 2.4)
-            & (events.muons.pfRelIso04_all < 0.25)
-            & (events.muons.looseId).astype(bool)
+            (events.Muon.pt > 10)
+            & (np.abs(events.Muon.eta) < 2.4)
+            & (events.Muon.pfRelIso04_all < 0.25)
+            & (events.Muon.looseId).astype(bool)
         )
         nmuons = goodmuon.sum()
-        leadingmuon = events.muons[goodmuon][:, 0:1]
+        leadingmuon = events.Muon[goodmuon][:, 0:1]
         muon_ak8_pair = leadingmuon.cross(candidatejet, nested=True)
 
         nelectrons = (
-            (events.electrons.p4.pt > 10)
-            & (np.abs(events.electrons.p4.eta) < 2.5)
-            & (events.electrons.cutBased & (1 << 2)).astype(bool)  # 2017V2 loose
+            (events.Electron.pt > 10)
+            & (np.abs(events.Electron.eta) < 2.5)
+            & (events.Electron.cutBased >= events.Electron.LOOSE)
         ).sum()
 
         ntaus = (
-            (events.taus.p4.pt > 20)
-            & (events.taus.idDecayMode).astype(bool)
+            (events.Tau.pt > 20)
+            & (events.Tau.idDecayMode).astype(bool)
             # bacon iso looser than Nano selection
         ).sum()
 
         selection.add('noleptons', (nmuons == 0) & (nelectrons == 0) & (ntaus == 0))
         selection.add('onemuon', (nmuons == 1) & (nelectrons == 0) & (ntaus == 0))
         selection.add('muonkin', (
-            (leadingmuon.p4.pt > 55.)
-            & (np.abs(leadingmuon.p4.eta) < 2.1)
+            (leadingmuon.pt > 55.)
+            & (np.abs(leadingmuon.eta) < 2.1)
         ).all())
         selection.add('muonDphiAK8', (
-            muon_ak8_pair.i0.p4.delta_phi(muon_ak8_pair.i1.p4) > 2*np.pi/3
+            muon_ak8_pair.i0.delta_phi(muon_ak8_pair.i1) > 2*np.pi/3
         ).all().all())
 
         cutflow = ['jetkin', 'trigger', 'jetid', 'n2ddt', 'antiak4btagMediumOppHem', 'met', 'noleptons']
@@ -144,19 +143,18 @@ class HbbProcessor(processor.ProcessorABC):
         weights = processor.Weights(len(events))
         if not isRealData:
             weights.add('genweight', events.genWeight)
-            add_pileup_weight(weights, events.Pileup_nPU, self._year, dataset)
-            bosons = events.genpart[
-                (np.abs(events.genpart.pdgId) >= 21)
-                & (np.abs(events.genpart.pdgId) <= 37)
-                & (events.genpart.statusFlags & ((1 << 7) | (1 << 13))).astype(bool)  # isHardProcess, isLastCopy
-                & (events.genpart.genPartIdxMother >= 0)
+            add_pileup_weight(weights, events.Pileup.nPU, self._year, dataset)
+            bosons = events.GenPart[
+                (np.abs(events.GenPart.pdgId) >= 21)
+                & (np.abs(events.GenPart.pdgId) <= 37)
+                & events.GenPart.hasFlags(['isHardProcess', 'isLastCopy'])
             ]
-            genBosonPt = bosons.p4.pt.pad(1, clip=True).fillna(0)
+            genBosonPt = bosons.pt.pad(1, clip=True).fillna(0)
             add_VJets_NLOkFactor(weights, genBosonPt, self._year, dataset)
 
             ak8_boson_pair = candidatejet.cross(bosons, nested=True)
-            dR2 = ak8_boson_pair.i0.p4.delta_r2(ak8_boson_pair.i1.p4)
-            dPt2 = ((ak8_boson_pair.i0.p4.pt - ak8_boson_pair.i1.p4.pt)/(ak8_boson_pair.i0.p4.pt + ak8_boson_pair.i1.p4.pt))**2
+            dR2 = ak8_boson_pair.i0.delta_r2(ak8_boson_pair.i1)
+            dPt2 = ((ak8_boson_pair.i0.pt - ak8_boson_pair.i1.pt)/(ak8_boson_pair.i0.pt + ak8_boson_pair.i1.pt))**2
             matchedBoson = ak8_boson_pair.i1[(dR2 + dPt2).argmin()].flatten(axis=1)
 
         return output
