@@ -20,7 +20,8 @@ def _msoftdrop_weight(pt, eta):
 def corrected_msoftdrop(fatjets):
     sf_flat = _msoftdrop_weight(fatjets.pt.flatten(), fatjets.eta.flatten())
     sf_flat = np.maximum(1e-5, sf_flat)
-    return fatjets.msoftdrop * ak.JaggedArray.fromoffsets(fatjets.array.offsets, sf_flat)
+    dazsle_msd = (fatjets.subjets * (fatjets.subjets.rawFactor + 1)).sum().mass
+    return dazsle_msd * ak.JaggedArray.fromoffsets(fatjets.array.offsets, sf_flat)
 
 
 def n2ddt_shift(fatjets, year='2017'):

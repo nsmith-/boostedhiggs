@@ -1,6 +1,10 @@
+from functools import partial
 import numpy as np
-from coffea import processor
-from .structure import buildevents
+from coffea import processor, hist
+from .common import (
+    getBosons,
+    matchedBosonFlavor,
+)
 from .corrections import (
     corrected_msoftdrop,
     n2ddt_shift,
@@ -21,25 +25,37 @@ class HbbProcessor(processor.ProcessorABC):
             },
         }
 
-        self._triggers = {
+        self._muontriggers = {
             '2016': [
-                "PFHT800",
-                "PFHT900",
-                "AK8PFJet360_TrimMass30",
-                'AK8PFHT700_TrimR0p1PT0p03Mass50',
-                "PFHT650_WideJetMJJ950DEtaJJ1p5",
-                "PFHT650_WideJetMJJ900DEtaJJ1p5",
-                "AK8DiPFJet280_200_TrimMass30_BTagCSV_p20",
-                "PFJet450",
+                'Mu50',  # TODO: check
             ],
             '2017': [
-                "AK8PFJet330_PFAK8BTagCSV_p17",
-                "PFHT1050",
-                "AK8PFJet400_TrimMass30",
-                "AK8PFJet420_TrimMass30",
-                "AK8PFHT800_TrimMass50",
-                "PFJet500",
-                "AK8PFJet500",
+                'Mu50',
+            ],
+            '2018': [
+                'Mu50',  # TODO: check
+            ],
+        }
+
+        self._triggers = {
+            '2016': [
+                'PFHT800',
+                'PFHT900',
+                'AK8PFJet360_TrimMass30',
+                'AK8PFHT700_TrimR0p1PT0p03Mass50',
+                'PFHT650_WideJetMJJ950DEtaJJ1p5',
+                'PFHT650_WideJetMJJ900DEtaJJ1p5',
+                'AK8DiPFJet280_200_TrimMass30_BTagCSV_p20',
+                'PFJet450',
+            ],
+            '2017': [
+                'AK8PFJet330_PFAK8BTagCSV_p17',
+                'PFHT1050',
+                'AK8PFJet400_TrimMass30',
+                'AK8PFJet420_TrimMass30',
+                'AK8PFHT800_TrimMass50',
+                'PFJet500',
+                'AK8PFJet500',
             ],
             '2018': [
                 'AK8PFJet400_TrimMass30',
@@ -54,8 +70,20 @@ class HbbProcessor(processor.ProcessorABC):
         }
 
         self._accumulator = processor.dict_accumulator({
-            'cutflow': processor.defaultdict_accumulator(float),
-
+            # dataset -> cut -> count
+            'cutflow': processor.defaultdict_accumulator(partial(processor.defaultdict_accumulator, float)),
+            # dataset -> sumw
+            'sumw': processor.defaultdict_accumulator(float),
+            'templates': hist.Hist(
+                'Events',
+                hist.Cat('dataset', 'Dataset'),
+                hist.Cat('region', 'Region'),
+                hist.Cat('systematic', 'Systematic'),
+                hist.Bin('genflavor', 'Gen. jet flavor', [0, 1, 2, 3, 4]),
+                hist.Bin('pt', r'Jet $p_{T}$ [GeV]', [450, 500, 550, 600, 675, 800, 1200]),
+                hist.Bin('msd', r'Jet $m_{sd}$', 23, 40, 201),
+                hist.Bin('ddb', r'Jet ddb score', [0, 0.89, 1]),
+            ),
         })
 
     @property
@@ -65,23 +93,32 @@ class HbbProcessor(processor.ProcessorABC):
     def process(self, events):
         dataset = events.metadata['dataset']
         isRealData = 'genWeight' not in events.columns
-        output = self.accumulator.identity()
         selection = processor.PackedSelection()
 
         trigger = np.ones(events.size, dtype='bool')
         for t in self._triggers[self._year]:
-            trigger = trigger & events.HLT[t]
+            trigger = trigger | events.HLT[t]
         selection.add('trigger', trigger)
+
+        trigger = np.ones(events.size, dtype='bool')
+        for t in self._muontriggers[self._year]:
+            trigger = trigger | events.HLT[t]
+        selection.add('muontrigger', trigger)
 
         fatjets = events.FatJet
         fatjets['msdcorr'] = corrected_msoftdrop(fatjets)
-        fatjets['rho'] = 2*np.log(fatjets.msdcorr / fatjets.pt)
+        fatjets['rho'] = 2 * np.log(fatjets.msdcorr / fatjets.pt)
         fatjets['n2ddt'] = fatjets.n2b1 - n2ddt_shift(fatjets, year=self._year)
 
-        candidatejet = fatjets[:, 0:1]
+        candidatejet = fatjets[
+            # https://github.com/DAZSLE/BaconAnalyzer/blob/master/Analyzer/src/VJetLoader.cc#L269
+            (fatjets.pt > 200)
+            & (abs(fatjets.eta) < 2.5)
+            & (fatjets.jetId & 2).astype(bool)  # this is tight rather than loose
+        ][:, 0:1]
         selection.add('jetkin', (
             (candidatejet.pt > 450)
-            & (candidatejet.eta < 2.4)
+            & (abs(candidatejet.eta) < 2.4)
             & (candidatejet.msdcorr > 40.)
         ).any())
         selection.add('jetid', (candidatejet.jetId & 2).any())  # tight id
@@ -101,6 +138,7 @@ class HbbProcessor(processor.ProcessorABC):
         selection.add('ak4btagMedium08', ak4_away.btagDeepB.max() > self._btagWPs['med'][self._year])
 
         selection.add('met', events.MET.pt < 140.)
+
         goodmuon = (
             (events.Muon.pt > 10)
             & (np.abs(events.Muon.eta) < 2.4)
@@ -133,29 +171,53 @@ class HbbProcessor(processor.ProcessorABC):
             muon_ak8_pair.i0.delta_phi(muon_ak8_pair.i1) > 2*np.pi/3
         ).all().all())
 
-        cutflow = ['jetkin', 'trigger', 'jetid', 'n2ddt', 'antiak4btagMediumOppHem', 'met', 'noleptons']
-        allcuts = set()
-        output['cutflow']['none'] += len(events)
-        for cut in cutflow:
-            allcuts.add(cut)
-            output['cutflow'][cut] += selection.all(*allcuts).sum()
-
         weights = processor.Weights(len(events))
-        if not isRealData:
+        if isRealData:
+            genflavor = candidatejet.pt.zeros_like()
+        else:
             weights.add('genweight', events.genWeight)
             add_pileup_weight(weights, events.Pileup.nPU, self._year, dataset)
-            bosons = events.GenPart[
-                (np.abs(events.GenPart.pdgId) >= 21)
-                & (np.abs(events.GenPart.pdgId) <= 37)
-                & events.GenPart.hasFlags(['isHardProcess', 'isLastCopy'])
-            ]
+            bosons = getBosons(events)
             genBosonPt = bosons.pt.pad(1, clip=True).fillna(0)
             add_VJets_NLOkFactor(weights, genBosonPt, self._year, dataset)
+            genflavor = matchedBosonFlavor(candidatejet, bosons)
 
-            ak8_boson_pair = candidatejet.cross(bosons, nested=True)
-            dR2 = ak8_boson_pair.i0.delta_r2(ak8_boson_pair.i1)
-            dPt2 = ((ak8_boson_pair.i0.pt - ak8_boson_pair.i1.pt)/(ak8_boson_pair.i0.pt + ak8_boson_pair.i1.pt))**2
-            matchedBoson = ak8_boson_pair.i1[(dR2 + dPt2).argmin()].flatten(axis=1)
+        output = self.accumulator.identity()
+        if not isRealData:
+            output['sumw'][dataset] += events.genWeight.sum()
+
+        signalregion = ['jetkin', 'trigger', 'jetid', 'n2ddt', 'antiak4btagMediumOppHem', 'met', 'noleptons']
+        muoncontrol = ['jetkin', 'muontrigger', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8']
+
+        allcuts = set()
+        output['cutflow'][dataset]['none'] += float(weights.weight().sum())
+        for cut in muoncontrol:
+            allcuts.add(cut)
+            output['cutflow'][dataset][cut] += float(weights.weight()[selection.all(*allcuts)].sum())
+
+        cut = selection.all(*signalregion)
+        output['templates'].fill(
+            dataset=dataset,
+            region='signal',
+            systematic='nominal',
+            genflavor=genflavor[cut].flatten(),
+            pt=candidatejet[cut].pt.flatten(),
+            msd=candidatejet[cut].msdcorr.flatten(),
+            ddb=candidatejet[cut].btagDDBvL.flatten(),
+            weight=weights.weight()[cut],
+        )
+
+        cut = selection.all(*muoncontrol)
+        output['templates'].fill(
+            dataset=dataset,
+            region='muoncontrol',
+            systematic='nominal',
+            genflavor=genflavor[cut].flatten(),
+            pt=candidatejet[cut].pt.flatten(),
+            msd=candidatejet[cut].msdcorr.flatten(),
+            ddb=candidatejet[cut].btagDDBvL.flatten(),
+            weight=weights.weight()[cut],
+        )
 
         return output
 
