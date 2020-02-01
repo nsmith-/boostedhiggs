@@ -21,7 +21,11 @@ def _msoftdrop_weight(pt, eta):
 def corrected_msoftdrop(fatjets):
     sf_flat = _msoftdrop_weight(fatjets.pt.flatten(), fatjets.eta.flatten())
     sf_flat = np.maximum(1e-5, sf_flat)
-    dazsle_msd = (fatjets.subjets * (fatjets.subjets.rawFactor + 1)).sum().mass
+    try:
+        # old pancakes
+        dazsle_msd = fatjets.msoftdrop_raw
+    except AttributeError:
+        dazsle_msd = (fatjets.subjets * (1 - fatjets.subjets.rawFactor)).sum().mass
     return dazsle_msd * ak.JaggedArray.fromoffsets(fatjets.array.offsets, sf_flat)
 
 

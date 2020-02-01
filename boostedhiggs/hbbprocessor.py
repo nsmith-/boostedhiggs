@@ -14,6 +14,12 @@ from .corrections import (
 )
 from .btag import BTagEfficiency, BTagCorrector
 
+# for old pancakes
+from coffea.nanoaod.methods import collection_methods, FatJet
+collection_methods['CustomAK8Puppi'] = FatJet
+collection_methods['CustomAK8PuppiSubjet'] = FatJet
+FatJet.subjetmap['CustomAK8Puppi'] = 'CustomAK8PuppiSubjet'
+
 
 class HbbProcessor(processor.ProcessorABC):
     def __init__(self, year='2017'):
@@ -106,7 +112,11 @@ class HbbProcessor(processor.ProcessorABC):
             trigger = trigger | events.HLT[t]
         selection.add('muontrigger', trigger)
 
-        fatjets = events.FatJet
+        try:
+            fatjets = events.FatJet
+        except AttributeError:
+            # early pancakes
+            fatjets = events.CustomAK8Puppi
         fatjets['msdcorr'] = corrected_msoftdrop(fatjets)
         fatjets['rho'] = 2 * np.log(fatjets.msdcorr / fatjets.pt)
         fatjets['n2ddt'] = fatjets.n2b1 - n2ddt_shift(fatjets, year=self._year)
@@ -117,11 +127,11 @@ class HbbProcessor(processor.ProcessorABC):
             & (abs(fatjets.eta) < 2.5)
             & (fatjets.jetId & 2).astype(bool)  # this is tight rather than loose
         ][:, 0:1]
-        selection.add('jetkin', (
+        selection.add('jetexists', (
             (candidatejet.pt > 450)
-            & (abs(candidatejet.eta) < 2.4)
             & (candidatejet.msdcorr > 40.)
         ).any())
+        selection.add('jetacceptance', (abs(candidatejet.eta) < 2.4).any())
         selection.add('jetid', (candidatejet.jetId & 2).any())  # tight id
         selection.add('n2ddt', (candidatejet.n2ddt < 0.).any())
 
@@ -185,8 +195,9 @@ class HbbProcessor(processor.ProcessorABC):
             output['btagWeight'].fill(dataset=dataset, val=self._btagSF.addBtagWeight(weights, ak4_away))
 
         regions = {
-            'signal': ['jetkin', 'trigger', 'jetid', 'n2ddt', 'antiak4btagMediumOppHem', 'met', 'noleptons'],
-            'muoncontrol': ['jetkin', 'muontrigger', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8'],
+            'signal': ['jetexists', 'jetacceptance', 'trigger', 'jetid', 'n2ddt', 'antiak4btagMediumOppHem', 'met', 'noleptons'],
+            'muoncontrol': ['jetexists', 'jetacceptance', 'muontrigger', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8'],
+            'noselection': ['jetexists'],
         }
 
         allcuts = set()
@@ -205,20 +216,32 @@ class HbbProcessor(processor.ProcessorABC):
             'btagEffStatDown',
         ]
 
+        def fill(region, systematic, wmod=None):
+            selections = regions[region]
+            cut = selection.all(*selections)
+            if wmod is None:
+                weight = weights.weight(modifier=systematic)[cut]
+            else:
+                weight = weights.weight()[cut] * wmod[cut]
+            output['templates'].fill(
+                dataset=dataset,
+                region=region,
+                systematic='nominal' if systematic is None else systematic,
+                genflavor=genflavor[cut].flatten(),
+                pt=candidatejet[cut].pt.flatten(),
+                msd=candidatejet[cut].msdcorr.flatten(),
+                ddb=candidatejet[cut].btagDDBvL.flatten(),
+                weight=weight,
+            )
+
         for region in regions:
             for systematic in systematics:
-                selections = regions[region]
-                cut = selection.all(*selections)
-                output['templates'].fill(
-                    dataset=dataset,
-                    region=region,
-                    systematic='nominal' if systematic is None else systematic,
-                    genflavor=genflavor[cut].flatten(),
-                    pt=candidatejet[cut].pt.flatten(),
-                    msd=candidatejet[cut].msdcorr.flatten(),
-                    ddb=candidatejet[cut].btagDDBvL.flatten(),
-                    weight=weights.weight(modifier=systematic)[cut],
-                )
+                fill(region, systematic)
+            if 'GluGluHToBB' in dataset:
+                for i in range(9):
+                    fill(region, 'LHEScale_%d' % i, events.LHEScaleWeight[:, i])
+                for c in events.LHEWeight.columns[1:]:
+                    fill(region, 'LHEWeight_%s' % c, events.LHEWeight[c])
 
         return output
 

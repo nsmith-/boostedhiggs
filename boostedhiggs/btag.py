@@ -146,6 +146,7 @@ class BTagScaleFactor:
                 numba.float64(numba.float64),
             ])(feval)
         val = numexpr.evaluate(formula)
+
         def duck(_, out, where):
             out[where] = val
         return duck
