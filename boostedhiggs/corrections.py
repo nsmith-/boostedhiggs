@@ -1,8 +1,9 @@
+import os
 import numpy as np
 import awkward as ak
 from coffea.util import load
 
-compiled = load(__file__.replace('.py', '.coffea'))
+compiled = load(os.path.join(os.path.dirname(__file__), 'data', 'corrections.coffea'))
 
 
 def _msoftdrop_weight(pt, eta):
@@ -61,3 +62,12 @@ def add_VJets_NLOkFactor(weights, genBosonPt, year, dataset):
     else:
         return
     weights.add('VJets_NLOkFactor', nlo_over_lo_qcd * nlo_over_lo_ewk)
+
+
+def add_jetTriggerWeight(weights, jet_msd, jet_pt, year):
+    jet_msd = jet_msd.pad(1, clip=True).fillna(0).flatten()
+    jet_pt = jet_pt.pad(1, clip=True).fillna(0).flatten()
+    nom = compiled[f'{year}_trigweight_msd_pt'](jet_msd, jet_pt)
+    up = compiled[f'{year}_trigweight_msd_pt_trigweightUp'](jet_msd, jet_pt)
+    down = compiled[f'{year}_trigweight_msd_pt_trigweightDown'](jet_msd, jet_pt)
+    weights.add('jet_trigger', nom, up, down)

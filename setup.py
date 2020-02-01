@@ -32,6 +32,8 @@ setup(name="boostedhiggs",
       install_requires=[
           "coffea>=0.6.30",
           "rhalphalib",
+          "numexpr",
+          "pandas",
       ],
       setup_requires=["flake8"] + pytest_runner,
       classifiers=[

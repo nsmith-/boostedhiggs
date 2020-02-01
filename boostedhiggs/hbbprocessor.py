@@ -10,6 +10,7 @@ from .corrections import (
     n2ddt_shift,
     add_pileup_weight,
     add_VJets_NLOkFactor,
+    add_jetTriggerWeight,
 )
 
 
@@ -18,11 +19,9 @@ class HbbProcessor(processor.ProcessorABC):
         self._year = year
 
         self._btagWPs = {
-            'med': {
-                '2016': 0.6321,
-                '2017': 0.4941,
-                '2018': 0.4184,
-            },
+            '2016': {'med': 0.6321},
+            '2017': {'med': 0.4941},
+            '2018': {'med': 0.4184},
         }
 
         self._muontriggers = {
@@ -132,16 +131,16 @@ class HbbProcessor(processor.ProcessorABC):
         jets = jets[:, :4]
         ak4_ak8_pair = jets.cross(candidatejet, nested=True)
         dphi = ak4_ak8_pair.i0.delta_phi(ak4_ak8_pair.i1)
-        ak4_opposite = jets[(np.abs(dphi) > np.pi / 2).all()]
-        selection.add('antiak4btagMediumOppHem', ak4_opposite.btagDeepB.max() < self._btagWPs['med'][self._year])
-        ak4_away = jets[(np.abs(dphi) > 0.8).all()]
-        selection.add('ak4btagMedium08', ak4_away.btagDeepB.max() > self._btagWPs['med'][self._year])
+        ak4_opposite = jets[(abs(dphi) > np.pi / 2).all()]
+        selection.add('antiak4btagMediumOppHem', ak4_opposite.btagDeepB.max() < self._btagWPs[self._year]['med'])
+        ak4_away = jets[(abs(dphi) > 0.8).all()]
+        selection.add('ak4btagMedium08', ak4_away.btagDeepB.max() > self._btagWPs[self._year]['med'])
 
         selection.add('met', events.MET.pt < 140.)
 
         goodmuon = (
             (events.Muon.pt > 10)
-            & (np.abs(events.Muon.eta) < 2.4)
+            & (abs(events.Muon.eta) < 2.4)
             & (events.Muon.pfRelIso04_all < 0.25)
             & (events.Muon.looseId).astype(bool)
         )
@@ -151,7 +150,7 @@ class HbbProcessor(processor.ProcessorABC):
 
         nelectrons = (
             (events.Electron.pt > 10)
-            & (np.abs(events.Electron.eta) < 2.5)
+            & (abs(events.Electron.eta) < 2.5)
             & (events.Electron.cutBased >= events.Electron.LOOSE)
         ).sum()
 
@@ -165,7 +164,7 @@ class HbbProcessor(processor.ProcessorABC):
         selection.add('onemuon', (nmuons == 1) & (nelectrons == 0) & (ntaus == 0))
         selection.add('muonkin', (
             (leadingmuon.pt > 55.)
-            & (np.abs(leadingmuon.eta) < 2.1)
+            & (abs(leadingmuon.eta) < 2.1)
         ).all())
         selection.add('muonDphiAK8', (
             muon_ak8_pair.i0.delta_phi(muon_ak8_pair.i1) > 2*np.pi/3
@@ -181,43 +180,39 @@ class HbbProcessor(processor.ProcessorABC):
             genBosonPt = bosons.pt.pad(1, clip=True).fillna(0)
             add_VJets_NLOkFactor(weights, genBosonPt, self._year, dataset)
             genflavor = matchedBosonFlavor(candidatejet, bosons)
+            add_jetTriggerWeight(weights, candidatejet.msdcorr, candidatejet.pt, self._year)
 
         output = self.accumulator.identity()
         if not isRealData:
             output['sumw'][dataset] += events.genWeight.sum()
 
-        signalregion = ['jetkin', 'trigger', 'jetid', 'n2ddt', 'antiak4btagMediumOppHem', 'met', 'noleptons']
-        muoncontrol = ['jetkin', 'muontrigger', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8']
+        regions = {
+            'signal': ['jetkin', 'trigger', 'jetid', 'n2ddt', 'antiak4btagMediumOppHem', 'met', 'noleptons'],
+            'muoncontrol': ['jetkin', 'muontrigger', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8'],
+        }
 
         allcuts = set()
         output['cutflow'][dataset]['none'] += float(weights.weight().sum())
-        for cut in muoncontrol:
+        for cut in regions['muoncontrol']:
             allcuts.add(cut)
             output['cutflow'][dataset][cut] += float(weights.weight()[selection.all(*allcuts)].sum())
 
-        cut = selection.all(*signalregion)
-        output['templates'].fill(
-            dataset=dataset,
-            region='signal',
-            systematic='nominal',
-            genflavor=genflavor[cut].flatten(),
-            pt=candidatejet[cut].pt.flatten(),
-            msd=candidatejet[cut].msdcorr.flatten(),
-            ddb=candidatejet[cut].btagDDBvL.flatten(),
-            weight=weights.weight()[cut],
-        )
+        systematics = [None, 'jet_triggerUp', 'jet_triggerDown']
 
-        cut = selection.all(*muoncontrol)
-        output['templates'].fill(
-            dataset=dataset,
-            region='muoncontrol',
-            systematic='nominal',
-            genflavor=genflavor[cut].flatten(),
-            pt=candidatejet[cut].pt.flatten(),
-            msd=candidatejet[cut].msdcorr.flatten(),
-            ddb=candidatejet[cut].btagDDBvL.flatten(),
-            weight=weights.weight()[cut],
-        )
+        for region in regions:
+            for systematic in systematics:
+                selections = regions[region]
+                cut = selection.all(*selections)
+                output['templates'].fill(
+                    dataset=dataset,
+                    region=region,
+                    systematic='nominal' if systematic is None else systematic,
+                    genflavor=genflavor[cut].flatten(),
+                    pt=candidatejet[cut].pt.flatten(),
+                    msd=candidatejet[cut].msdcorr.flatten(),
+                    ddb=candidatejet[cut].btagDDBvL.flatten(),
+                    weight=weights.weight(modifier=systematic)[cut],
+                )
 
         return output
 
