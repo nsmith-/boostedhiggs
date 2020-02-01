@@ -88,10 +88,10 @@ class BTagScaleFactor:
             del df[var + 'Min']
             del df[var + 'Max']
         df = df[df['DeepCSV;OperatingPoint'] == workingpoint]
-        df['compiled'] = df['formula'].apply(BTagScaleFactor.compile)
         df = df[(df['measurementType'] == lightmethod) | (df['jetFlavor'] == 2)]
-        df = df.set_index(['sysType', 'jetFlavor', 'etaBin', 'ptBin', 'discrBin']).sort_index()['compiled']
+        df = df.set_index(['sysType', 'jetFlavor', 'etaBin', 'ptBin', 'discrBin']).sort_index()
         self._corrections = {}
+        self._compiled = {}
         for syst in list(df.index.levels[0]):
             corr = df.loc[syst]
             edges_flavor = numpy.array([0, 1, 2, 3])  # udsg, c, b
@@ -116,7 +116,26 @@ class BTagScaleFactor:
                     mapidx = findbin(flavor, abs(eta), pt, discr)
                 mapping[idx] = mapidx
 
-            self._corrections[syst] = (edges_flavor, edges_eta, edges_pt, edges_discr, mapping, numpy.array(corr))
+            self._corrections[syst] = (
+                edges_flavor,
+                edges_eta,
+                edges_pt,
+                edges_discr,
+                mapping,
+                numpy.array(corr['formula']),
+            )
+            self._compiled[syst] = [BTagScaleFactor.compile(f) for f in self._corrections[syst][5]]
+
+    def __getstate__(self):
+        state = dict(self.__dict__)
+        state.pop('_compiled')
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__ = state
+        self._compiled = {}
+        for syst in self._corrections:
+            self._compiled[syst] = [BTagScaleFactor.compile(f) for f in self._corrections[syst][5]]
 
     @classmethod
     def compile(cls, formula):
@@ -155,7 +174,7 @@ class BTagScaleFactor:
         for ifunc in numpy.unique(mapidx):
             if ifunc < 0 and not ignore_missing:
                 raise ValueError('No correction was available for some items')
-            func = corr[5][ifunc]
+            func = self._compiled[systematic][ifunc]
             var = discr if self.workingpoint == BTagScaleFactor.RESHAPE else pt
             func(var, out=out, where=(mapidx == ifunc))
 
@@ -215,3 +234,6 @@ if __name__ == '__main__':
     import awkward as ak
     b.eval('central', ak.fromiter([[0], [1, 2]]), ak.fromiter([[-2.3], [2., 0.]]), ak.fromiter([[20.1], [300., 10.]]))
     b = BTagCorrector('2017', 'medium')
+    import pickle
+    bb = pickle.loads(pickle.dumps(b))
+    bb.sf.eval('central', ak.fromiter([[0], [1, 2]]), ak.fromiter([[-2.3], [2., 0.]]), ak.fromiter([[20.1], [300., 10.]]))
