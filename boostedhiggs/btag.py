@@ -3,28 +3,32 @@ import pandas
 import numpy
 import numexpr
 import numba
-from coffea import processor, hist
+from coffea import processor, hist, util
+from coffea.lookup_tools.dense_lookup import dense_lookup
 
 
 class BTagEfficiency(processor.ProcessorABC):
+    btagWPs = {
+        '2016': {
+            'medium': 0.6321,
+        },
+        '2017': {
+            'medium': 0.4941,
+        },
+        '2018': {
+            'medium': 0.4184,
+        },
+    }
+
     def __init__(self, year='2017'):
         self._year = year
-
-        self._btagWPs = {
-            '2016': {'med': 0.6321},
-            '2017': {'med': 0.4941},
-            '2018': {'med': 0.4184},
-        }
-
-        self._accumulator = processor.dict_accumulator({
-            'btag': hist.Hist(
-                'Events',
-                hist.Cat('btag', 'BTag WP pass/fail'),
-                hist.Bin('flavor', 'Jet hadronFlavor', [0, 4, 5, 6]),
-                hist.Bin('pt', 'Jet pT', [30, 50, 70, 100, 140, 200, 500]),
-                hist.Bin('eta', 'Jet eta', 4, 0, 2.4),
-            ),
-        })
+        self._accumulator = hist.Hist(
+            'Events',
+            hist.Cat('btag', 'BTag WP pass/fail'),
+            hist.Bin('flavor', 'Jet hadronFlavour', [0, 4, 5, 6]),
+            hist.Bin('pt', 'Jet pT', [30, 50, 70, 100, 140, 200, 500]),
+            hist.Bin('eta', 'Jet abseta', 4, 0, 2.4),
+        )
 
     @property
     def accumulator(self):
@@ -36,16 +40,16 @@ class BTagEfficiency(processor.ProcessorABC):
             & (events.Jet.jetId & 2)  # tight id
         ]
 
-        passbtag = jets.btagDeepB > self._btagWPs[self._year]['med']
+        passbtag = jets.btagDeepB > BTagEfficiency.btagWPs[self._year]['medium']
 
         out = self.accumulator.identity()
-        out['btag'].fill(
+        out.fill(
             btag='pass',
             flavor=jets[passbtag].hadronFlavour.flatten(),
             pt=jets[passbtag].pt.flatten(),
             eta=abs(jets[passbtag].eta).flatten(),
         )
-        out['btag'].fill(
+        out.fill(
             btag='fail',
             flavor=jets[~passbtag].hadronFlavour.flatten(),
             pt=jets[~passbtag].pt.flatten(),
@@ -57,10 +61,15 @@ class BTagEfficiency(processor.ProcessorABC):
         return a
 
 
-class BTagCorrection:
+class BTagScaleFactor:
     LOOSE, MEDIUM, TIGHT, RESHAPE = range(4)
+    wpString = {'loose': LOOSE, 'medium': MEDIUM, 'tight': TIGHT}
 
     def __init__(self, year, workingpoint, lightmethod='comb'):
+        try:
+            workingpoint = BTagScaleFactor.wpString[workingpoint]
+        except KeyError:
+            pass
         if workingpoint == 3:
             raise NotImplementedError('Reshape corrections are not yet supported')
         elif workingpoint not in [0, 1, 2, 3]:
@@ -79,7 +88,7 @@ class BTagCorrection:
             del df[var + 'Min']
             del df[var + 'Max']
         df = df[df['DeepCSV;OperatingPoint'] == workingpoint]
-        df['compiled'] = df['formula'].apply(BTagCorrection.compile)
+        df['compiled'] = df['formula'].apply(BTagScaleFactor.compile)
         df = df[(df['measurementType'] == lightmethod) | (df['jetFlavor'] == 2)]
         df = df.set_index(['sysType', 'jetFlavor', 'etaBin', 'ptBin', 'discrBin']).sort_index()['compiled']
         self._corrections = {}
@@ -107,7 +116,7 @@ class BTagCorrection:
                     mapidx = findbin(flavor, abs(eta), pt, discr)
                 mapping[idx] = mapidx
 
-            self._corrections[syst] = (edges_flavor, edges_eta, edges_pt, edges_discr, mapping, numpy.array(df))
+            self._corrections[syst] = (edges_flavor, edges_eta, edges_pt, edges_discr, mapping, numpy.array(corr))
 
     @classmethod
     def compile(cls, formula):
@@ -117,7 +126,10 @@ class BTagCorrection:
                 numba.float32(numba.float32),
                 numba.float64(numba.float64),
             ])(feval)
-        return numexpr.evaluate(formula)
+        val = numexpr.evaluate(formula)
+        def duck(_, out, where):
+            out[where] = val
+        return duck
 
     def lookup(self, axis, values):
         return numpy.clip(numpy.searchsorted(axis, values, side='right') - 1, 0, len(axis) - 2)
@@ -144,7 +156,7 @@ class BTagCorrection:
             if ifunc < 0 and not ignore_missing:
                 raise ValueError('No correction was available for some items')
             func = corr[5][ifunc]
-            var = discr if self.workingpoint == BTagCorrection.RESHAPE else pt
+            var = discr if self.workingpoint == BTagScaleFactor.RESHAPE else pt
             func(var, out=out, where=(mapidx == ifunc))
 
         if jin is not None:
@@ -152,9 +164,54 @@ class BTagCorrection:
         return out
 
 
+class BTagCorrector:
+    def __init__(self, year, workingpoint):
+        self._year = year
+        self._wp = BTagEfficiency.btagWPs[year][workingpoint]
+        self.sf = BTagScaleFactor(year, workingpoint)
+        files = {
+            '2017': 'btagQCD2017.coffea',
+        }
+        file = os.path.join(os.path.dirname(__file__), 'data', files[year])
+        btag = util.load(file)
+        bpass = btag.integrate('btag', 'pass').values()[()]
+        ball = btag.integrate('btag').values()[()]
+        nom = bpass / ball
+        dn, up = hist.clopper_pearson_interval(bpass, ball)
+        self.eff = dense_lookup(nom, [ax.edges() for ax in btag.axes()[1:]])
+        self.eff_statUp = dense_lookup(up, [ax.edges() for ax in btag.axes()[1:]])
+        self.eff_statDn = dense_lookup(dn, [ax.edges() for ax in btag.axes()[1:]])
+
+    def addBtagWeight(self, weights, jets):
+        # 0 = udsg, 1 or 4 = c, 2 or 5 = b
+        flavor = jets.hadronFlavour % 3
+        passbtag = jets.btagDeepB > self._wp
+
+        # https://twiki.cern.ch/twiki/bin/viewauth/CMS/BTagSFMethods#1a_Event_reweighting_using_scale
+        def combine(eff, sf):
+            # tagged SF = SF*eff / eff = SF
+            tagged_sf = eff[passbtag].prod()
+            # untagged SF = (1 - SF*eff) / (1 - eff)
+            untagged_sf = ((1 - sf*eff) / (1 - eff))[~passbtag].prod()
+            return tagged_sf * untagged_sf
+
+        eff_nom = self.eff(jets.hadronFlavour, jets.pt, abs(jets.eta))
+        eff_statUp = self.eff_statUp(jets.hadronFlavour, jets.pt, abs(jets.eta))
+        eff_statDn = self.eff_statDn(jets.hadronFlavour, jets.pt, abs(jets.eta))
+        sf_nom = self.sf.eval('central', flavor, jets.eta, jets.pt)
+        sf_systUp = self.sf.eval('up', flavor, jets.eta, jets.pt)
+        sf_systDn = self.sf.eval('down', flavor, jets.eta, jets.pt)
+
+        nom = combine(eff_nom, sf_nom)
+        weights.add('btagWeight', nom, weightUp=combine(eff_nom, sf_systUp), weightDown=combine(eff_nom, sf_systDn))
+        weights.add('btagEffStat', numpy.ones_like(nom), weightUp=combine(eff_statUp, sf_nom) / nom, weightDown=combine(eff_statDn, sf_nom) / nom)
+        return nom
+
+
 if __name__ == '__main__':
-    b = BTagCorrection('2017', BTagCorrection.MEDIUM)
+    b = BTagScaleFactor('2017', BTagScaleFactor.MEDIUM)
     b.eval('central', numpy.array([0, 1, 2]), numpy.array([-2.3, 2., 0.]), numpy.array([20.1, 300., 10.]))
     b.eval('down_uncorrelated', numpy.array([2, 2, 2]), numpy.array([-2.6, 2.9, 0.]), numpy.array([20.1, 300., 1000.]))
     import awkward as ak
     b.eval('central', ak.fromiter([[0], [1, 2]]), ak.fromiter([[-2.3], [2., 0.]]), ak.fromiter([[20.1], [300., 10.]]))
+    b = BTagCorrector('2017', 'medium')

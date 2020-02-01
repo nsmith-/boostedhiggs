@@ -12,17 +12,14 @@ from .corrections import (
     add_VJets_NLOkFactor,
     add_jetTriggerWeight,
 )
+from .btag import BTagEfficiency, BTagCorrector
 
 
 class HbbProcessor(processor.ProcessorABC):
     def __init__(self, year='2017'):
         self._year = year
 
-        self._btagWPs = {
-            '2016': {'med': 0.6321},
-            '2017': {'med': 0.4941},
-            '2018': {'med': 0.4184},
-        }
+        self._btagSF = BTagCorrector(year, 'medium')
 
         self._muontriggers = {
             '2016': [
@@ -69,10 +66,11 @@ class HbbProcessor(processor.ProcessorABC):
         }
 
         self._accumulator = processor.dict_accumulator({
-            # dataset -> cut -> count
-            'cutflow': processor.defaultdict_accumulator(partial(processor.defaultdict_accumulator, float)),
             # dataset -> sumw
             'sumw': processor.defaultdict_accumulator(float),
+            # dataset -> cut -> count
+            'cutflow': processor.defaultdict_accumulator(partial(processor.defaultdict_accumulator, float)),
+            'btagWeight': hist.Hist('Events', hist.Cat('dataset', 'Dataset'), hist.Bin('val', 'BTag correction', 50, 0, 2)),
             'templates': hist.Hist(
                 'Events',
                 hist.Cat('dataset', 'Dataset'),
@@ -93,6 +91,10 @@ class HbbProcessor(processor.ProcessorABC):
         dataset = events.metadata['dataset']
         isRealData = 'genWeight' not in events.columns
         selection = processor.PackedSelection()
+        weights = processor.Weights(len(events))
+        output = self.accumulator.identity()
+        if not isRealData:
+            output['sumw'][dataset] += events.genWeight.sum()
 
         trigger = np.ones(events.size, dtype='bool')
         for t in self._triggers[self._year]:
@@ -132,9 +134,9 @@ class HbbProcessor(processor.ProcessorABC):
         ak4_ak8_pair = jets.cross(candidatejet, nested=True)
         dphi = ak4_ak8_pair.i0.delta_phi(ak4_ak8_pair.i1)
         ak4_opposite = jets[(abs(dphi) > np.pi / 2).all()]
-        selection.add('antiak4btagMediumOppHem', ak4_opposite.btagDeepB.max() < self._btagWPs[self._year]['med'])
+        selection.add('antiak4btagMediumOppHem', ak4_opposite.btagDeepB.max() < BTagEfficiency.btagWPs[self._year]['medium'])
         ak4_away = jets[(abs(dphi) > 0.8).all()]
-        selection.add('ak4btagMedium08', ak4_away.btagDeepB.max() > self._btagWPs[self._year]['med'])
+        selection.add('ak4btagMedium08', ak4_away.btagDeepB.max() > BTagEfficiency.btagWPs[self._year]['medium'])
 
         selection.add('met', events.MET.pt < 140.)
 
@@ -170,7 +172,6 @@ class HbbProcessor(processor.ProcessorABC):
             muon_ak8_pair.i0.delta_phi(muon_ak8_pair.i1) > 2*np.pi/3
         ).all().all())
 
-        weights = processor.Weights(len(events))
         if isRealData:
             genflavor = candidatejet.pt.zeros_like()
         else:
@@ -181,10 +182,7 @@ class HbbProcessor(processor.ProcessorABC):
             add_VJets_NLOkFactor(weights, genBosonPt, self._year, dataset)
             genflavor = matchedBosonFlavor(candidatejet, bosons)
             add_jetTriggerWeight(weights, candidatejet.msdcorr, candidatejet.pt, self._year)
-
-        output = self.accumulator.identity()
-        if not isRealData:
-            output['sumw'][dataset] += events.genWeight.sum()
+            output['btagWeight'].fill(dataset=dataset, val=self._btagSF.addBtagWeight(weights, ak4_away))
 
         regions = {
             'signal': ['jetkin', 'trigger', 'jetid', 'n2ddt', 'antiak4btagMediumOppHem', 'met', 'noleptons'],
@@ -197,7 +195,15 @@ class HbbProcessor(processor.ProcessorABC):
             allcuts.add(cut)
             output['cutflow'][dataset][cut] += float(weights.weight()[selection.all(*allcuts)].sum())
 
-        systematics = [None, 'jet_triggerUp', 'jet_triggerDown']
+        systematics = [
+            None,
+            'jet_triggerUp',
+            'jet_triggerDown',
+            'btagWeightUp',
+            'btagWeightDown',
+            'btagEffStatUp',
+            'btagEffStatDown',
+        ]
 
         for region in regions:
             for systematic in systematics:
