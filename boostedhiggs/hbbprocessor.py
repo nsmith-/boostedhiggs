@@ -87,6 +87,14 @@ class HbbProcessor(processor.ProcessorABC):
                 hist.Bin('msd', r'Jet $m_{sd}$', 23, 40, 201),
                 hist.Bin('ddb', r'Jet ddb score', [0, 0.89, 1]),
             ),
+            'genresponse': hist.Hist(
+                'Events',
+                hist.Cat('dataset', 'Dataset'),
+                hist.Cat('region', 'Region'),
+                hist.Cat('systematic', 'Systematic'),
+                hist.Bin('pt', r'Jet $p_{T}$ [GeV]', [450, 500, 550, 600, 675, 800, 1200]),
+                hist.Bin('genpt', r'Generated Higgs $p_{T}$ [GeV]', [200, 300, 450, 650, 7500]),
+            ),
         })
 
     @property
@@ -219,6 +227,7 @@ class HbbProcessor(processor.ProcessorABC):
         def fill(region, systematic, wmod=None):
             selections = regions[region]
             cut = selection.all(*selections)
+            sname = 'nominal' if systematic is None else systematic
             if wmod is None:
                 weight = weights.weight(modifier=systematic)[cut]
             else:
@@ -226,13 +235,22 @@ class HbbProcessor(processor.ProcessorABC):
             output['templates'].fill(
                 dataset=dataset,
                 region=region,
-                systematic='nominal' if systematic is None else systematic,
+                systematic=sname,
                 genflavor=genflavor[cut].flatten(),
                 pt=candidatejet[cut].pt.flatten(),
                 msd=candidatejet[cut].msdcorr.flatten(),
                 ddb=candidatejet[cut].btagDDBvL.flatten(),
                 weight=weight,
             )
+            if wmod is not None:
+                output['genresponse'].fill(
+                    dataset=dataset,
+                    region=region,
+                    systematic=sname,
+                    pt=candidatejet[cut].pt.flatten(),
+                    genpt=genBosonPt[cut],
+                    weight=weight,
+                )
 
         for region in regions:
             for systematic in systematics:
