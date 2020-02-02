@@ -210,7 +210,7 @@ class BTagCorrector:
         # https://twiki.cern.ch/twiki/bin/viewauth/CMS/BTagSFMethods#1a_Event_reweighting_using_scale
         def combine(eff, sf):
             # tagged SF = SF*eff / eff = SF
-            tagged_sf = eff[passbtag].prod()
+            tagged_sf = sf[passbtag].prod()
             # untagged SF = (1 - SF*eff) / (1 - eff)
             untagged_sf = ((1 - sf*eff) / (1 - eff))[~passbtag].prod()
             return tagged_sf * untagged_sf
@@ -225,6 +225,9 @@ class BTagCorrector:
         nom = combine(eff_nom, sf_nom)
         weights.add('btagWeight', nom, weightUp=combine(eff_nom, sf_systUp), weightDown=combine(eff_nom, sf_systDn))
         weights.add('btagEffStat', numpy.ones_like(nom), weightUp=combine(eff_statUp, sf_nom) / nom, weightDown=combine(eff_statDn, sf_nom) / nom)
+        for i in numpy.where(nom < 0.05)[0][:4]:
+            jet = jets[i]
+            print("Small weight for event:", nom[i], jet.pt, jet.eta, jet.hadronFlavour, jet.btagDeepB, eff_nom[i], sf_nom[i])
         return nom
 
 

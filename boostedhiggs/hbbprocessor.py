@@ -133,19 +133,19 @@ class HbbProcessor(processor.ProcessorABC):
             # https://github.com/DAZSLE/BaconAnalyzer/blob/master/Analyzer/src/VJetLoader.cc#L269
             (fatjets.pt > 200)
             & (abs(fatjets.eta) < 2.5)
-            & (fatjets.jetId & 2).astype(bool)  # this is tight rather than loose
+            & fatjets.isTight  # this is loose in sampleContainer
         ][:, 0:1]
         selection.add('jetacceptance', (
             (candidatejet.pt > 450)
             & (candidatejet.msdcorr > 40.)
             & (abs(candidatejet.eta) < 2.4)
         ).any())
-        selection.add('jetid', (candidatejet.jetId & 2).any())  # tight id
+        selection.add('jetid', candidatejet.isTight.any())
         selection.add('n2ddt', (candidatejet.n2ddt < 0.).any())
 
         jets = events.Jet[
             (events.Jet.pt > 30.)
-            & (events.Jet.jetId & 2)  # tight id
+            & events.Jet.isTight
         ]
         # only consider first 4 jets to be consistent with old framework
         jets = jets[:, :4]
