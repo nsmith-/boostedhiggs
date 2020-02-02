@@ -1,10 +1,16 @@
 import os
+from threading import Lock
 import pandas
 import numpy
 import numexpr
 import numba
+import zict
 from coffea import processor, hist, util
 from coffea.lookup_tools.dense_lookup import dense_lookup
+
+
+FORMULA_LOCK = Lock()
+FORMULA_CACHE = zict.LRU(100, {})
 
 
 class BTagEfficiency(processor.ProcessorABC):
@@ -139,17 +145,24 @@ class BTagScaleFactor:
 
     @classmethod
     def compile(cls, formula):
-        if 'x' in formula:
-            feval = eval('lambda x: ' + formula, {'log': numpy.log, 'sqrt': numpy.sqrt})
-            return numba.vectorize([
-                numba.float32(numba.float32),
-                numba.float64(numba.float64),
-            ])(feval)
-        val = numexpr.evaluate(formula)
+        with FORMULA_LOCK:
+            try:
+                return FORMULA_CACHE[formula]
+            except KeyError:
+                if 'x' in formula:
+                    feval = eval('lambda x: ' + formula, {'log': numpy.log, 'sqrt': numpy.sqrt})
+                    out = numba.vectorize([
+                        numba.float32(numba.float32),
+                        numba.float64(numba.float64),
+                    ])(feval)
+                else:
+                    val = numexpr.evaluate(formula)
 
-        def duck(_, out, where):
-            out[where] = val
-        return duck
+                    def duck(_, out, where):
+                        out[where] = val
+                    out = duck
+                FORMULA_CACHE[formula] = out
+                return out
 
     def lookup(self, axis, values):
         return numpy.clip(numpy.searchsorted(axis, values, side='right') - 1, 0, len(axis) - 2)
