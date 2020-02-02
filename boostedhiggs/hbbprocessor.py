@@ -135,11 +135,11 @@ class HbbProcessor(processor.ProcessorABC):
             & (abs(fatjets.eta) < 2.5)
             & (fatjets.jetId & 2).astype(bool)  # this is tight rather than loose
         ][:, 0:1]
-        selection.add('jetexists', (
+        selection.add('jetacceptance', (
             (candidatejet.pt > 450)
             & (candidatejet.msdcorr > 40.)
+            & (abs(candidatejet.eta) < 2.4)
         ).any())
-        selection.add('jetacceptance', (abs(candidatejet.eta) < 2.4).any())
         selection.add('jetid', (candidatejet.jetId & 2).any())  # tight id
         selection.add('n2ddt', (candidatejet.n2ddt < 0.).any())
 
@@ -203,9 +203,9 @@ class HbbProcessor(processor.ProcessorABC):
             output['btagWeight'].fill(dataset=dataset, val=self._btagSF.addBtagWeight(weights, ak4_away))
 
         regions = {
-            'signal': ['jetexists', 'jetacceptance', 'trigger', 'jetid', 'n2ddt', 'antiak4btagMediumOppHem', 'met', 'noleptons'],
-            'muoncontrol': ['jetexists', 'jetacceptance', 'muontrigger', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8'],
-            'noselection': ['jetexists'],
+            'signal': ['jetacceptance', 'trigger', 'jetid', 'n2ddt', 'antiak4btagMediumOppHem', 'met', 'noleptons'],
+            'muoncontrol': ['jetacceptance', 'muontrigger', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8'],
+            'noselection': [],
         }
 
         allcuts = set()
@@ -232,14 +232,18 @@ class HbbProcessor(processor.ProcessorABC):
                 weight = weights.weight(modifier=systematic)[cut]
             else:
                 weight = weights.weight()[cut] * wmod[cut]
+
+            def normalize(val):
+                return val[cut].pad(1, clip=True).fillna(0).flatten()
+
             output['templates'].fill(
                 dataset=dataset,
                 region=region,
                 systematic=sname,
-                genflavor=genflavor[cut].flatten(),
-                pt=candidatejet[cut].pt.flatten(),
-                msd=candidatejet[cut].msdcorr.flatten(),
-                ddb=candidatejet[cut].btagDDBvL.flatten(),
+                genflavor=normalize(genflavor),
+                pt=normalize(candidatejet.pt),
+                msd=normalize(candidatejet.msdcorr),
+                ddb=normalize(candidatejet.btagDDBvL),
                 weight=weight,
             )
             if wmod is not None:
@@ -247,8 +251,8 @@ class HbbProcessor(processor.ProcessorABC):
                     dataset=dataset,
                     region=region,
                     systematic=sname,
-                    pt=candidatejet[cut].pt.flatten(),
-                    genpt=genBosonPt[cut],
+                    pt=normalize(candidatejet.pt),
+                    genpt=normalize(genBosonPt),
                     weight=weight,
                 )
 
