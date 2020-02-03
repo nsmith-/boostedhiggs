@@ -33,6 +33,7 @@ class HbbProcessor(processor.ProcessorABC):
             ],
             '2017': [
                 'Mu50',
+                'TkMu50',
             ],
             '2018': [
                 'Mu50',  # TODO: check
@@ -111,13 +112,15 @@ class HbbProcessor(processor.ProcessorABC):
             output['sumw'][dataset] += events.genWeight.sum()
 
         trigger = np.ones(events.size, dtype='bool')
-        for t in self._triggers[self._year]:
-            trigger = trigger | events.HLT[t]
+        if isRealData:
+            for t in self._triggers[self._year]:
+                trigger = trigger | events.HLT[t]
         selection.add('trigger', trigger)
 
         trigger = np.ones(events.size, dtype='bool')
-        for t in self._muontriggers[self._year]:
-            trigger = trigger | events.HLT[t]
+        if isRealData:
+            for t in self._muontriggers[self._year]:
+                trigger = trigger | events.HLT[t]
         selection.add('muontrigger', trigger)
 
         try:
@@ -150,10 +153,10 @@ class HbbProcessor(processor.ProcessorABC):
         # only consider first 4 jets to be consistent with old framework
         jets = jets[:, :4]
         ak4_ak8_pair = jets.cross(candidatejet, nested=True)
-        dphi = ak4_ak8_pair.i0.delta_phi(ak4_ak8_pair.i1)
-        ak4_opposite = jets[(abs(dphi) > np.pi / 2).all()]
+        dphi = abs(ak4_ak8_pair.i0.delta_phi(ak4_ak8_pair.i1))
+        ak4_opposite = jets[(dphi > np.pi / 2).all()]
         selection.add('antiak4btagMediumOppHem', ak4_opposite.btagDeepB.max() < BTagEfficiency.btagWPs[self._year]['medium'])
-        ak4_away = jets[(abs(dphi) > 0.8).all()]
+        ak4_away = jets[(dphi > 0.8).all()]
         selection.add('ak4btagMedium08', ak4_away.btagDeepB.max() > BTagEfficiency.btagWPs[self._year]['medium'])
 
         selection.add('met', events.MET.pt < 140.)
@@ -187,7 +190,7 @@ class HbbProcessor(processor.ProcessorABC):
             & (abs(leadingmuon.eta) < 2.1)
         ).all())
         selection.add('muonDphiAK8', (
-            muon_ak8_pair.i0.delta_phi(muon_ak8_pair.i1) > 2*np.pi/3
+            abs(muon_ak8_pair.i0.delta_phi(muon_ak8_pair.i1)) > 2*np.pi/3
         ).all().all())
 
         if isRealData:
