@@ -1,8 +1,12 @@
 import os
 import numpy
+import logging
 from coffea import processor, hist, util
 from coffea.lookup_tools.dense_lookup import dense_lookup
 from coffea.btag_tools import BTagScaleFactor
+
+
+logger = logging.getLogger(__name__)
 
 
 class BTagEfficiency(processor.ProcessorABC):
@@ -24,8 +28,8 @@ class BTagEfficiency(processor.ProcessorABC):
             'Events',
             hist.Cat('btag', 'BTag WP pass/fail'),
             hist.Bin('flavor', 'Jet hadronFlavour', [0, 4, 5, 6]),
-            hist.Bin('pt', 'Jet pT', [30, 50, 70, 100, 140, 200, 500]),
-            hist.Bin('eta', 'Jet abseta', 4, 0, 2.4),
+            hist.Bin('pt', 'Jet pT', [20, 30, 50, 70, 100, 140, 200, 300, 600, 1000]),
+            hist.Bin('eta', 'Jet eta', [-2.5, -2.4, -2.0, -1.4, 0, 1.4, 2.0, 2.4, 2.5]),
         )
 
     @property
@@ -46,13 +50,13 @@ class BTagEfficiency(processor.ProcessorABC):
             btag='pass',
             flavor=jets[passbtag].hadronFlavour.flatten(),
             pt=jets[passbtag].pt.flatten(),
-            eta=abs(jets[passbtag].eta).flatten(),
+            eta=jets[passbtag].eta.flatten(),
         )
         out.fill(
             btag='fail',
             flavor=jets[~passbtag].hadronFlavour.flatten(),
             pt=jets[~passbtag].pt.flatten(),
-            eta=abs(jets[~passbtag].eta).flatten(),
+            eta=jets[~passbtag].eta.flatten(),
         )
         return out
 
@@ -99,9 +103,9 @@ class BTagCorrector:
             untagged_sf = ((1 - sf*eff) / (1 - eff))[~passbtag].prod()
             return tagged_sf * untagged_sf
 
-        eff_nom = self.eff(jets.hadronFlavour, jets.pt, abs(jets.eta))
-        eff_statUp = self.eff_statUp(jets.hadronFlavour, jets.pt, abs(jets.eta))
-        eff_statDn = self.eff_statDn(jets.hadronFlavour, jets.pt, abs(jets.eta))
+        eff_nom = self.eff(jets.hadronFlavour, jets.pt, jets.eta)
+        eff_statUp = self.eff_statUp(jets.hadronFlavour, jets.pt, jets.eta)
+        eff_statDn = self.eff_statDn(jets.hadronFlavour, jets.pt, jets.eta)
         sf_nom = self.sf.eval('central', flavor, jets.eta, jets.pt)
         sf_systUp = self.sf.eval('up', flavor, jets.eta, jets.pt)
         sf_systDn = self.sf.eval('down', flavor, jets.eta, jets.pt)
@@ -111,13 +115,13 @@ class BTagCorrector:
         weights.add('btagEffStat', numpy.ones_like(nom), weightUp=combine(eff_statUp, sf_nom) / nom, weightDown=combine(eff_statDn, sf_nom) / nom)
         for i in numpy.where(nom < 0.05)[0][:4]:
             jet = jets[i]
-            print("Small weight for event:", nom[i])
-            print("jet pts:", jet.pt)
-            print("jet etas:", jet.eta)
-            print("jet flavors:", jet.hadronFlavour)
-            print("jet btags:", jet.btagDeepB)
-            print("result eff:", eff_nom[i], "pm", eff_statUp[i], eff_statDn[i])
-            print("result sf:", sf_nom[i])
+            logger.info("Small weight for event:", nom[i])
+            logger.info("    jet pts:", jet.pt)
+            logger.info("    jet etas:", jet.eta)
+            logger.info("    jet flavors:", jet.hadronFlavour)
+            logger.info("    jet btags:", jet.btagDeepB)
+            logger.info("    result eff:", eff_nom[i], "pm", eff_statUp[i], eff_statDn[i])
+            logger.info("    result sf:", sf_nom[i])
         return nom
 
 
