@@ -148,6 +148,7 @@ class HbbProcessor(processor.ProcessorABC):
 
         jets = events.Jet[
             (events.Jet.pt > 30.)
+            & (abs(events.Jet.eta) < 2.5)
             & events.Jet.isTight
         ]
         # only consider first 4 jets to be consistent with old framework
