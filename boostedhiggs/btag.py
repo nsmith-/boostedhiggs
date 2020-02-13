@@ -35,6 +35,7 @@ class BTagEfficiency(processor.ProcessorABC):
     def process(self, events):
         jets = events.Jet[
             (events.Jet.pt > 30.)
+            & (abs(events.Jet.eta) < 2.5)
             & (events.Jet.jetId & 2)  # tight id
         ]
 
@@ -64,12 +65,16 @@ class BTagCorrector:
         self._year = year
         self._wp = BTagEfficiency.btagWPs[year][workingpoint]
         files = {
+            '2016': 'DeepCSV_Moriond17_B_H.csv.gz',
             '2017': 'DeepCSV_94XSF_V5_B_F.csv.gz',
+            '2018': 'DeepCSV_102XSF_V1.csv.gz',
         }
         filename = os.path.join(os.path.dirname(__file__), 'data', files[year])
         self.sf = BTagScaleFactor(filename, workingpoint)
         files = {
+            '2016': 'btagQCD2017.coffea',
             '2017': 'btagQCD2017.coffea',
+            '2018': 'btagQCD2017.coffea',
         }
         filename = os.path.join(os.path.dirname(__file__), 'data', files[year])
         btag = util.load(filename)
@@ -106,7 +111,13 @@ class BTagCorrector:
         weights.add('btagEffStat', numpy.ones_like(nom), weightUp=combine(eff_statUp, sf_nom) / nom, weightDown=combine(eff_statDn, sf_nom) / nom)
         for i in numpy.where(nom < 0.05)[0][:4]:
             jet = jets[i]
-            print("Small weight for event:", nom[i], jet.pt, jet.eta, jet.hadronFlavour, jet.btagDeepB, eff_nom[i], sf_nom[i])
+            print("Small weight for event:", nom[i])
+            print("jet pts:", jet.pt)
+            print("jet etas:", jet.eta)
+            print("jet flavors:", jet.hadronFlavour)
+            print("jet btags:", jet.btagDeepB)
+            print("result eff:", eff_nom[i], "pm", eff_statUp[i], eff_statDn[i])
+            print("result sf:", sf_nom[i])
         return nom
 
 
@@ -119,3 +130,5 @@ if __name__ == '__main__':
     import pickle
     bb = pickle.loads(pickle.dumps(b))
     bb.sf.eval('central', ak.fromiter([[0], [1, 2]]), ak.fromiter([[-2.3], [2., 0.]]), ak.fromiter([[20.1], [300., 10.]]))
+    b2 = BTagCorrector('2016', 'medium')
+    b3 = BTagCorrector('2018', 'medium')
