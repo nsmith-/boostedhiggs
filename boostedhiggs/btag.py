@@ -115,13 +115,13 @@ class BTagCorrector:
         weights.add('btagEffStat', numpy.ones_like(nom), weightUp=combine(eff_statUp, sf_nom) / nom, weightDown=combine(eff_statDn, sf_nom) / nom)
         for i in numpy.where(nom < 0.05)[0][:4]:
             jet = jets[i]
-            logger.info("Small weight for event:", nom[i])
-            logger.info("    jet pts:", jet.pt)
-            logger.info("    jet etas:", jet.eta)
-            logger.info("    jet flavors:", jet.hadronFlavour)
-            logger.info("    jet btags:", jet.btagDeepB)
-            logger.info("    result eff:", eff_nom[i], "pm", eff_statUp[i], eff_statDn[i])
-            logger.info("    result sf:", sf_nom[i])
+            logger.info("Small weight for event: %r", nom[i])
+            logger.info("    jet pts: %r", jet.pt)
+            logger.info("    jet etas: %r", jet.eta)
+            logger.info("    jet flavors: %r", jet.hadronFlavour)
+            logger.info("    jet btags: %r", jet.btagDeepB)
+            logger.info("    result eff: %r up %r down %r", eff_nom[i], eff_statUp[i], eff_statDn[i])
+            logger.info("    result sf: %r", sf_nom[i])
         return nom
 
 
