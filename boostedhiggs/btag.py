@@ -29,7 +29,7 @@ class BTagEfficiency(processor.ProcessorABC):
             hist.Cat('btag', 'BTag WP pass/fail'),
             hist.Bin('flavor', 'Jet hadronFlavour', [0, 4, 5, 6]),
             hist.Bin('pt', 'Jet pT', [20, 30, 50, 70, 100, 140, 200, 300, 600, 1000]),
-            hist.Bin('eta', 'Jet eta', [-2.5, -2.4, -2.0, -1.4, 0, 1.4, 2.0, 2.4, 2.5]),
+            hist.Bin('abseta', 'Jet abseta', [0, 1.4, 2.0, 2.5]),
         )
 
     @property
@@ -50,13 +50,13 @@ class BTagEfficiency(processor.ProcessorABC):
             btag='pass',
             flavor=jets[passbtag].hadronFlavour.flatten(),
             pt=jets[passbtag].pt.flatten(),
-            eta=jets[passbtag].eta.flatten(),
+            abseta=abs(jets[passbtag].eta.flatten()),
         )
         out.fill(
             btag='fail',
             flavor=jets[~passbtag].hadronFlavour.flatten(),
             pt=jets[~passbtag].pt.flatten(),
-            eta=jets[~passbtag].eta.flatten(),
+            abseta=abs(jets[~passbtag].eta.flatten()),
         )
         return out
 
@@ -84,15 +84,14 @@ class BTagCorrector:
         btag = util.load(filename)
         bpass = btag.integrate('btag', 'pass').values()[()]
         ball = btag.integrate('btag').values()[()]
-        nom = bpass / ball
+        nom = bpass / numpy.maximum(ball, 1.)
         dn, up = hist.clopper_pearson_interval(bpass, ball)
         self.eff = dense_lookup(nom, [ax.edges() for ax in btag.axes()[1:]])
         self.eff_statUp = dense_lookup(up, [ax.edges() for ax in btag.axes()[1:]])
         self.eff_statDn = dense_lookup(dn, [ax.edges() for ax in btag.axes()[1:]])
 
     def addBtagWeight(self, weights, jets):
-        # 0 = udsg, 1 or 4 = c, 2 or 5 = b
-        flavor = jets.hadronFlavour % 3
+        abseta = abs(jets.eta)
         passbtag = jets.btagDeepB > self._wp
 
         # https://twiki.cern.ch/twiki/bin/viewauth/CMS/BTagSFMethods#1a_Event_reweighting_using_scale
@@ -103,19 +102,19 @@ class BTagCorrector:
             untagged_sf = ((1 - sf*eff) / (1 - eff))[~passbtag].prod()
             return tagged_sf * untagged_sf
 
-        eff_nom = self.eff(jets.hadronFlavour, jets.pt, jets.eta)
-        eff_statUp = self.eff_statUp(jets.hadronFlavour, jets.pt, jets.eta)
-        eff_statDn = self.eff_statDn(jets.hadronFlavour, jets.pt, jets.eta)
-        sf_nom = self.sf.eval('central', flavor, jets.eta, jets.pt)
-        sf_systUp = self.sf.eval('up', flavor, jets.eta, jets.pt)
-        sf_systDn = self.sf.eval('down', flavor, jets.eta, jets.pt)
+        eff_nom = self.eff(jets.hadronFlavour, jets.pt, abseta)
+        eff_statUp = self.eff_statUp(jets.hadronFlavour, jets.pt, abseta)
+        eff_statDn = self.eff_statDn(jets.hadronFlavour, jets.pt, abseta)
+        sf_nom = self.sf.eval('central', jets.hadronFlavour, abseta, jets.pt)
+        sf_systUp = self.sf.eval('up', jets.hadronFlavour, abseta, jets.pt)
+        sf_systDn = self.sf.eval('down', jets.hadronFlavour, abseta, jets.pt)
 
         nom = combine(eff_nom, sf_nom)
         weights.add('btagWeight', nom, weightUp=combine(eff_nom, sf_systUp), weightDown=combine(eff_nom, sf_systDn))
         weights.add('btagEffStat', numpy.ones_like(nom), weightUp=combine(eff_statUp, sf_nom) / nom, weightDown=combine(eff_statDn, sf_nom) / nom)
-        for i in numpy.where(nom < 0.05)[0][:4]:
+        for i in numpy.where((nom < 0.01) | (nom > 10) | numpy.isnan(nom))[0][:4]:
             jet = jets[i]
-            logger.info("Small weight for event: %r", nom[i])
+            logger.info("Strange weight for event: %r", nom[i])
             logger.info("    jet pts: %r", jet.pt)
             logger.info("    jet etas: %r", jet.eta)
             logger.info("    jet flavors: %r", jet.hadronFlavour)
