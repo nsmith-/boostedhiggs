@@ -265,7 +265,7 @@ class HbbProcessor(processor.ProcessorABC):
                     systematic=sname,
                     pt=normalize(candidatejet.pt),
                     genpt=normalize(genBosonPt),
-                    weight=events.genWeight * wmod,
+                    weight=events.genWeight[cut] * wmod[cut],
                 )
                 output['genresponse'].fill(
                     dataset=dataset,
