@@ -1,1 +1,1 @@
-include boostedhiggs/corrections.coffea
+recursive-include boostedhiggs/data *

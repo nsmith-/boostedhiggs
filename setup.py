@@ -30,8 +30,9 @@ setup(name="boostedhiggs",
       license="BSD 3-clause",
       test_suite="tests",
       install_requires=[
-          "coffea>=0.6.30",
+          "coffea>=0.6.33",
           "rhalphalib",
+          "pandas",
       ],
       setup_requires=["flake8"] + pytest_runner,
       classifiers=[
