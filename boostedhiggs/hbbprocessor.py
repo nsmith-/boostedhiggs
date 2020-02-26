@@ -1,3 +1,4 @@
+import logging
 from functools import partial
 import numpy as np
 from coffea import processor, hist
@@ -19,6 +20,9 @@ from coffea.nanoaod.methods import collection_methods, FatJet
 collection_methods['CustomAK8Puppi'] = FatJet
 collection_methods['CustomAK8PuppiSubjet'] = FatJet
 FatJet.subjetmap['CustomAK8Puppi'] = 'CustomAK8PuppiSubjet'
+
+
+logger = logging.getLogger(__name__)
 
 
 class HbbProcessor(processor.ProcessorABC):
@@ -75,8 +79,13 @@ class HbbProcessor(processor.ProcessorABC):
         self._accumulator = processor.dict_accumulator({
             # dataset -> sumw
             'sumw': processor.defaultdict_accumulator(float),
-            # dataset -> cut -> count
-            'cutflow': processor.defaultdict_accumulator(partial(processor.defaultdict_accumulator, float)),
+            'cutflow': hist.Hist(
+                'Events',
+                hist.Cat('dataset', 'Dataset'),
+                hist.Cat('region', 'Region'),
+                hist.Bin('genflavor', 'Gen. jet flavor', [0, 1, 2, 3, 4]),
+                hist.Bin('cut', 'Cut index', 10, 0, 10),
+            ),
             'btagWeight': hist.Hist('Events', hist.Cat('dataset', 'Dataset'), hist.Bin('val', 'BTag correction', 50, 0, 2)),
             'templates': hist.Hist(
                 'Events',
@@ -84,7 +93,7 @@ class HbbProcessor(processor.ProcessorABC):
                 hist.Cat('region', 'Region'),
                 hist.Cat('systematic', 'Systematic'),
                 hist.Bin('genflavor', 'Gen. jet flavor', [0, 1, 2, 3, 4]),
-                hist.Bin('pt', r'Jet $p_{T}$ [GeV]', 80, 400, 1200),
+                hist.Bin('pt', r'Jet $p_{T}$ [GeV]', [450, 500, 550, 600, 675, 800, 1200]),
                 hist.Bin('msd', r'Jet $m_{sd}$', 23, 40, 201),
                 hist.Bin('ddb', r'Jet ddb score', [0, 0.89, 1]),
             ),
@@ -153,6 +162,7 @@ class HbbProcessor(processor.ProcessorABC):
         ).any())
         selection.add('jetid', candidatejet.isTight.any())
         selection.add('n2ddt', (candidatejet.n2ddt < 0.).any())
+        selection.add('ddbpass', (candidatejet.btagDDBvL >= 0.89).any())
 
         jets = events.Jet[
             (events.Jet.pt > 30.)
@@ -210,7 +220,7 @@ class HbbProcessor(processor.ProcessorABC):
             bosons = getBosons(events)
             genBosonPt = bosons.pt.pad(1, clip=True).fillna(0)
             add_VJets_NLOkFactor(weights, genBosonPt, self._year, dataset)
-            genflavor = matchedBosonFlavor(candidatejet, bosons)
+            genflavor = matchedBosonFlavor(candidatejet, bosons).pad(1, clip=True).fillna(-1).flatten()
             add_jetTriggerWeight(weights, candidatejet.msdcorr, candidatejet.pt, self._year)
             output['btagWeight'].fill(dataset=dataset, val=self._btagSF.addBtagWeight(weights, ak4_away))
 
@@ -220,11 +230,14 @@ class HbbProcessor(processor.ProcessorABC):
             'noselection': [],
         }
 
-        allcuts = set()
-        output['cutflow'][dataset]['none'] += float(weights.weight().sum())
-        for cut in regions['muoncontrol']:
-            allcuts.add(cut)
-            output['cutflow'][dataset][cut] += float(weights.weight()[selection.all(*allcuts)].sum())
+        for region, cuts in regions.items():
+            allcuts = set()
+            logger.debug(f"Filling cutflow with: {dataset}, {region}, {genflavor}, {weights.weight()}")
+            output['cutflow'].fill(dataset=dataset, region=region, genflavor=genflavor, cut=0, weight=weights.weight())
+            for i, cut in enumerate(cuts + ['ddbpass']):
+                allcuts.add(cut)
+                cut = selection.all(*allcuts)
+                output['cutflow'].fill(dataset=dataset, region=region, genflavor=genflavor[cut], cut=i + 1, weight=weights.weight()[cut])
 
         systematics = [
             None,
@@ -252,7 +265,7 @@ class HbbProcessor(processor.ProcessorABC):
                 dataset=dataset,
                 region=region,
                 systematic=sname,
-                genflavor=normalize(genflavor),
+                genflavor=genflavor[cut],
                 pt=normalize(candidatejet.pt),
                 msd=normalize(candidatejet.msdcorr),
                 ddb=normalize(candidatejet.btagDDBvL),
