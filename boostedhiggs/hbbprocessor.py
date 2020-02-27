@@ -128,16 +128,20 @@ class HbbProcessor(processor.ProcessorABC):
         if not isRealData:
             output['sumw'][dataset] += events.genWeight.sum()
 
-        trigger = np.ones(events.size, dtype='bool')
         if isRealData:
+            trigger = np.zeros(events.size, dtype='bool')
             for t in self._triggers[self._year]:
                 trigger = trigger | events.HLT[t]
+        else:
+            trigger = np.ones(events.size, dtype='bool')
         selection.add('trigger', trigger)
 
-        trigger = np.ones(events.size, dtype='bool')
         if isRealData:
+            trigger = np.zeros(events.size, dtype='bool')
             for t in self._muontriggers[self._year]:
                 trigger = trigger | events.HLT[t]
+        else:
+            trigger = np.ones(events.size, dtype='bool')
         selection.add('muontrigger', trigger)
 
         try:
