@@ -5,6 +5,10 @@ from coffea.util import load
 
 compiled = load(os.path.join(os.path.dirname(__file__), 'data', 'corrections.coffea'))
 
+# hotfix some crazy large weights
+compiled['2017_pileupweight']._values = np.minimum(5, compiled['2017_pileupweight']._values)
+compiled['2018_pileupweight']._values = np.minimum(5, compiled['2018_pileupweight']._values)
+
 
 def _msoftdrop_weight(pt, eta):
     gpar = np.array([1.00626, -1.06161, 0.0799900, 1.20454])

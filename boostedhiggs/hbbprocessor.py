@@ -1,5 +1,4 @@
 import logging
-from functools import partial
 import numpy as np
 from coffea import processor, hist
 from .common import (
@@ -30,6 +29,12 @@ class HbbProcessor(processor.ProcessorABC):
         self._year = year
 
         self._btagSF = BTagCorrector(year, 'medium')
+
+        self._msdSF = {
+            '2016': 1.,
+            '2017': 0.987,
+            '2018': 0.970,
+        }
 
         self._muontriggers = {
             '2016': [
@@ -85,6 +90,12 @@ class HbbProcessor(processor.ProcessorABC):
                 hist.Cat('region', 'Region'),
                 hist.Bin('genflavor', 'Gen. jet flavor', [0, 1, 2, 3, 4]),
                 hist.Bin('cut', 'Cut index', 10, 0, 10),
+            ),
+            'nminus1_n2ddt': hist.Hist(
+                'Events',
+                hist.Cat('dataset', 'Dataset'),
+                hist.Cat('region', 'Region'),
+                hist.Bin('n2ddt', 'N2ddt value', 40, -0.25, 0.25),
             ),
             'btagWeight': hist.Hist('Events', hist.Cat('dataset', 'Dataset'), hist.Bin('val', 'BTag correction', 50, 0, 2)),
             'templates': hist.Hist(
@@ -152,6 +163,7 @@ class HbbProcessor(processor.ProcessorABC):
         fatjets['msdcorr'] = corrected_msoftdrop(fatjets)
         fatjets['rho'] = 2 * np.log(fatjets.msdcorr / fatjets.pt)
         fatjets['n2ddt'] = fatjets.n2b1 - n2ddt_shift(fatjets, year=self._year)
+        fatjets['msdcorr_full'] = fatjets['msdcorr'] * self._msdSF[self._year]
 
         candidatejet = fatjets[
             # https://github.com/DAZSLE/BaconAnalyzer/blob/master/Analyzer/src/VJetLoader.cc#L269
@@ -227,6 +239,9 @@ class HbbProcessor(processor.ProcessorABC):
             genflavor = matchedBosonFlavor(candidatejet, bosons).pad(1, clip=True).fillna(-1).flatten()
             add_jetTriggerWeight(weights, candidatejet.msdcorr, candidatejet.pt, self._year)
             output['btagWeight'].fill(dataset=dataset, val=self._btagSF.addBtagWeight(weights, ak4_away))
+            logger.debug("Weight statistics: %r" % weights._weightStats)
+
+        msd_matched = candidatejet.msdcorr * self._msdSF[self._year] * (genflavor > 0) + candidatejet.msdcorr * (genflavor == 0)
 
         regions = {
             'signal': ['jetacceptance', 'trigger', 'jetid', 'n2ddt', 'antiak4btagMediumOppHem', 'met', 'noleptons'],
@@ -253,6 +268,9 @@ class HbbProcessor(processor.ProcessorABC):
             'btagEffStatDown',
         ]
 
+        def normalize(val, cut):
+            return val[cut].pad(1, clip=True).fillna(0).flatten()
+
         def fill(region, systematic, wmod=None):
             selections = regions[region]
             cut = selection.all(*selections)
@@ -262,17 +280,14 @@ class HbbProcessor(processor.ProcessorABC):
             else:
                 weight = weights.weight()[cut] * wmod[cut]
 
-            def normalize(val):
-                return val[cut].pad(1, clip=True).fillna(0).flatten()
-
             output['templates'].fill(
                 dataset=dataset,
                 region=region,
                 systematic=sname,
                 genflavor=genflavor[cut],
-                pt=normalize(candidatejet.pt),
-                msd=normalize(candidatejet.msdcorr),
-                ddb=normalize(candidatejet.btagDDBvL),
+                pt=normalize(candidatejet.pt, cut),
+                msd=normalize(msd_matched, cut),
+                ddb=normalize(candidatejet.btagDDBvL, cut),
                 weight=weight,
             )
             if wmod is not None:
@@ -280,20 +295,27 @@ class HbbProcessor(processor.ProcessorABC):
                     dataset=dataset,
                     region=region,
                     systematic=sname,
-                    pt=normalize(candidatejet.pt),
-                    genpt=normalize(genBosonPt),
+                    pt=normalize(candidatejet.pt, cut),
+                    genpt=normalize(genBosonPt, cut),
                     weight=events.genWeight[cut] * wmod[cut],
                 )
                 output['genresponse'].fill(
                     dataset=dataset,
                     region=region,
                     systematic=sname,
-                    pt=normalize(candidatejet.pt),
-                    genpt=normalize(genBosonPt),
+                    pt=normalize(candidatejet.pt, cut),
+                    genpt=normalize(genBosonPt, cut),
                     weight=weight,
                 )
 
         for region in regions:
+            cut = selection.all(*(set(regions[region]) - {'n2ddt'}))
+            output['nminus1_n2ddt'].fill(
+                dataset=dataset,
+                region=region,
+                n2ddt=normalize(candidatejet.n2ddt, cut),
+                weight=weights.weight()[cut],
+            )
             for systematic in systematics:
                 fill(region, systematic)
             if 'GluGluHToBB' in dataset:
