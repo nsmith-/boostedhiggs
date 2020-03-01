@@ -89,7 +89,7 @@ class HbbProcessor(processor.ProcessorABC):
                 hist.Cat('dataset', 'Dataset'),
                 hist.Cat('region', 'Region'),
                 hist.Bin('genflavor', 'Gen. jet flavor', [0, 1, 2, 3, 4]),
-                hist.Bin('cut', 'Cut index', 10, 0, 10),
+                hist.Bin('cut', 'Cut index', 11, 0, 11),
             ),
             'nminus1_n2ddt': hist.Hist(
                 'Events',
@@ -97,7 +97,7 @@ class HbbProcessor(processor.ProcessorABC):
                 hist.Cat('region', 'Region'),
                 hist.Bin('n2ddt', 'N2ddt value', 40, -0.25, 0.25),
             ),
-            'btagWeight': hist.Hist('Events', hist.Cat('dataset', 'Dataset'), hist.Bin('val', 'BTag correction', 50, 0, 2)),
+            'btagWeight': hist.Hist('Events', hist.Cat('dataset', 'Dataset'), hist.Bin('val', 'BTag correction', 50, 0, 3)),
             'templates': hist.Hist(
                 'Events',
                 hist.Cat('dataset', 'Dataset'),
@@ -169,12 +169,17 @@ class HbbProcessor(processor.ProcessorABC):
             # https://github.com/DAZSLE/BaconAnalyzer/blob/master/Analyzer/src/VJetLoader.cc#L269
             (fatjets.pt > 200)
             & (abs(fatjets.eta) < 2.5)
-            & fatjets.isTight  # this is loose in sampleContainer
+            # & fatjets.isLoose  # not always available
         ][:, 0:1]
+        selection.add('minjetkin', (
+            (candidatejet.pt >= 450)
+            & (candidatejet.msdcorr >= 40.)
+            & (abs(candidatejet.eta) < 2.5)
+        ).any())
         selection.add('jetacceptance', (
-            (candidatejet.pt > 450)
-            & (candidatejet.msdcorr > 40.)
-            & (abs(candidatejet.eta) < 2.4)
+            (candidatejet.msdcorr >= 47.)
+            & (candidatejet.pt < 1200)
+            & (candidatejet.msdcorr < 201.)
         ).any())
         selection.add('jetid', candidatejet.isTight.any())
         selection.add('n2ddt', (candidatejet.n2ddt < 0.).any())
@@ -244,8 +249,8 @@ class HbbProcessor(processor.ProcessorABC):
         msd_matched = candidatejet.msdcorr * self._msdSF[self._year] * (genflavor > 0) + candidatejet.msdcorr * (genflavor == 0)
 
         regions = {
-            'signal': ['jetacceptance', 'trigger', 'jetid', 'n2ddt', 'antiak4btagMediumOppHem', 'met', 'noleptons'],
-            'muoncontrol': ['jetacceptance', 'muontrigger', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8'],
+            'signal': ['trigger', 'minjetkin', 'jetacceptance', 'jetid', 'n2ddt', 'antiak4btagMediumOppHem', 'met', 'noleptons'],
+            'muoncontrol': ['muontrigger', 'minjetkin', 'jetacceptance', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8'],
             'noselection': [],
         }
 
