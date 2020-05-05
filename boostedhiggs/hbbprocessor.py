@@ -25,8 +25,9 @@ logger = logging.getLogger(__name__)
 
 
 class HbbProcessor(processor.ProcessorABC):
-    def __init__(self, year='2017'):
+    def __init__(self, year='2017', jet_arbitration='pt'):
         self._year = year
+        self._jet_arbitration = jet_arbitration
 
         self._btagSF = BTagCorrector(year, 'medium')
 
@@ -169,8 +170,24 @@ class HbbProcessor(processor.ProcessorABC):
             # https://github.com/DAZSLE/BaconAnalyzer/blob/master/Analyzer/src/VJetLoader.cc#L269
             (fatjets.pt > 200)
             & (abs(fatjets.eta) < 2.5)
-            # & fatjets.isLoose  # not always available
-        ][:, 0:1]
+            & fatjets.isTight  # this is loose in sampleContainer
+        ]
+        if self._jet_arbitration == 'pt':
+            candidatejet = candidatejet[:, 0:1]
+        elif self._jet_arbitration == 'mass':
+            candidatejet = candidatejet[
+                candidatejet.msdcorr.argmax()
+            ]
+        elif self._jet_arbitration == 'n2':
+            candidatejet = candidatejet[
+                candidatejet.n2ddt.argmin()
+            ]
+        elif self._jet_arbitration == 'ddb':
+            candidatejet = candidatejet[
+                candidatejet.btagDDBvL.argmax()
+            ]
+        else:
+            raise RuntimeError("Unknown candidate jet arbitration")
         selection.add('minjetkin', (
             (candidatejet.pt >= 450)
             & (candidatejet.msdcorr >= 40.)
