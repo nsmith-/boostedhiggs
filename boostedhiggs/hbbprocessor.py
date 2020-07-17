@@ -256,7 +256,7 @@ class HbbProcessor(processor.ProcessorABC):
             weights.add('genweight', events.genWeight)
             add_pileup_weight(weights, events.Pileup.nPU, self._year, dataset)
             bosons = getBosons(events)
-            genBosonPt = bosons.pt.pad(1, clip=True).fillna(0)
+            genBosonPt = bosons.pt.pad(1, clip=True).fillna(0).flatten()
             add_VJets_NLOkFactor(weights, genBosonPt, self._year, dataset)
             genflavor = matchedBosonFlavor(candidatejet, bosons).pad(1, clip=True).fillna(-1).flatten()
             add_jetTriggerWeight(weights, candidatejet.msdcorr, candidatejet.pt, self._year)
