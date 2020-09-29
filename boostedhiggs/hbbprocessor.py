@@ -215,8 +215,8 @@ class HbbProcessor(processor.ProcessorABC):
             & events.Jet.isTight
         ]
         # Protect again "empty" arrays [None, None, None...]
-        if ak.sum(candidatejet.phi) == 0.:
-            return self.accumulator.identity()
+        # if ak.sum(candidatejet.phi) == 0.:
+        #     return self.accumulator.identity()
         # only consider first 4 jets to be consistent with old framework
         jets = jets[:, :4]
         dphi = abs(jets.delta_phi(candidatejet))
