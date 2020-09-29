@@ -104,6 +104,17 @@ class HbbProcessor(processor.ProcessorABC):
                 hist.Bin('pt', r'Jet $p_{T}$ [GeV]', [450, 500, 550, 600, 675, 800, 1200]),
                 hist.Bin('msd', r'Jet $m_{sd}$', 23, 40, 201),
                 hist.Bin('ddb', r'Jet ddb score', [0, 0.89, 1]),
+                hist.Bin('ddc', r'Jet ddb score', [0, 0.83, 1]),
+            ),
+            'templatesCC': hist.Hist(
+                'Events',
+                hist.Cat('dataset', 'Dataset'),
+                hist.Cat('region', 'Region'),
+                hist.Cat('systematic', 'Systematic'),
+                hist.Bin('genflavor', 'Gen. jet flavor', [0, 1, 2, 3, 4]),
+                hist.Bin('pt', r'Jet $p_{T}$ [GeV]', [450, 500, 550, 600, 675, 800, 1200]),
+                hist.Bin('msd', r'Jet $m_{sd}$', 23, 40, 201),
+                hist.Bin('ddc', r'Jet ddb score', [0, 0.83, 1]),
             ),
             'genresponse_noweight': hist.Hist(
                 'Events',
@@ -153,11 +164,12 @@ class HbbProcessor(processor.ProcessorABC):
         selection.add('muontrigger', trigger)
 
         fatjets = events.FatJet
+        
         fatjets['msdcorr'] = corrected_msoftdrop(fatjets)
         fatjets['qcdrho'] = 2 * np.log(fatjets.msdcorr / fatjets.pt)
         fatjets['n2ddt'] = fatjets.n2b1 - n2ddt_shift(fatjets, year=self._year)
         fatjets['msdcorr_full'] = fatjets['msdcorr'] * self._msdSF[self._year]
-
+        
         candidatejet = fatjets[
             # https://github.com/DAZSLE/BaconAnalyzer/blob/master/Analyzer/src/VJetLoader.cc#L269
             (fatjets.pt > 200)
@@ -180,6 +192,7 @@ class HbbProcessor(processor.ProcessorABC):
             ]
         else:
             raise RuntimeError("Unknown candidate jet arbitration")
+    
 
         selection.add('minjetkin',
             (candidatejet.pt >= 450)
@@ -194,12 +207,16 @@ class HbbProcessor(processor.ProcessorABC):
         selection.add('jetid', candidatejet.isTight)
         selection.add('n2ddt', (candidatejet.n2ddt < 0.))
         selection.add('ddbpass', (candidatejet.btagDDBvL >= 0.89))
+        selection.add('ddcvbpass', (candidatejet.btagDDBvL >= 0.2))
 
         jets = events.Jet[
             (events.Jet.pt > 30.)
             & (abs(events.Jet.eta) < 2.5)
             & events.Jet.isTight
         ]
+        # Protect again "empty" arrays [None, None, None...]
+        if ak.sum(candidatejet.phi) == 0.:
+            return self.accumulator.identity()
         # only consider first 4 jets to be consistent with old framework
         jets = jets[:, :4]
         dphi = abs(jets.delta_phi(candidatejet))
@@ -236,7 +253,7 @@ class HbbProcessor(processor.ProcessorABC):
         selection.add('muonkin', (leadingmuon.pt > 55.) & (abs(leadingmuon.eta) < 2.1))
         selection.add('muonDphiAK8', abs(leadingmuon.delta_phi(candidatejet)) > 2*np.pi/3)
 
-        if isRealData:
+        if isRealData :
             genflavor = 0
         else:
             weights.add('genweight', events.genWeight)
@@ -254,7 +271,9 @@ class HbbProcessor(processor.ProcessorABC):
 
         regions = {
             'signal': ['trigger', 'minjetkin', 'jetacceptance', 'jetid', 'n2ddt', 'antiak4btagMediumOppHem', 'met', 'noleptons'],
+            'signalCC': ['trigger', 'minjetkin', 'jetacceptance', 'jetid', 'n2ddt', 'antiak4btagMediumOppHem', 'met', 'noleptons', 'ddcvbpass'],
             'muoncontrol': ['muontrigger', 'minjetkin', 'jetacceptance', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8'],
+            'muoncontrolCC': ['muontrigger', 'minjetkin', 'jetacceptance', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8', 'ddcvbpass'],
             'noselection': [],
         }
 
@@ -296,8 +315,29 @@ class HbbProcessor(processor.ProcessorABC):
                 pt=normalize(candidatejet.pt, cut),
                 msd=normalize(msd_matched, cut),
                 ddb=normalize(candidatejet.btagDDBvL, cut),
+                ddc=normalize(candidatejet.btagDDCvL, cut),
                 weight=weight,
             )
+            output['templatesCC'].fill(
+                dataset=dataset,
+                region=region,
+                systematic=sname,
+                genflavor=genflavor[cut],
+                pt=normalize(candidatejet.pt, cut),
+                msd=normalize(msd_matched, cut),
+                ddc=normalize(candidatejet.btagDDCvL, cut),
+                weight=weight,
+            )
+            # output['muon'].fill(
+            #     dataset=dataset,
+            #     region=region,
+            #     systematic=sname,
+            #     genflavor=genflavor[cut],
+            #     pt=normalize(candidatejet.pt, cut),
+            #     msd=normalize(msd_matched, cut),
+            #     ddc=normalize(candidatejet.btagDDCvL, cut),
+            #     weight=weight,
+            # )
             if wmod is not None:
                 output['genresponse_noweight'].fill(
                     dataset=dataset,
@@ -329,7 +369,7 @@ class HbbProcessor(processor.ProcessorABC):
             if 'GluGluHToBB' in dataset:
                 for i in range(9):
                     fill(region, 'LHEScale_%d' % i, events.LHEScaleWeight[:, i])
-                for c in events.LHEWeight.columns[1:]:
+                for c in events.LHEWeight.fields[1:]:
                     fill(region, 'LHEWeight_%s' % c, events.LHEWeight[c])
 
         output["weightStats"] = weights.weightStatistics

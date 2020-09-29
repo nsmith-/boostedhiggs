@@ -38,7 +38,12 @@ def corrected_msoftdrop(fatjets):
     except AttributeError:
         # for nanoaod we have to work back to it
         # TODO: this should be ak.sum(..., axis=-1) but not working
-        dazsle_msd = (fatjets.subjets * (1 - fatjets.subjets.rawFactor)).sum().mass
+        # FIXME
+        try:
+            
+            dazsle_msd = (fatjets.subjets * (1 - fatjets.subjets.rawFactor)).sum().mass
+        except:
+            dazsle_msd = fatjets.mass
     return dazsle_msd * sf
 
 
