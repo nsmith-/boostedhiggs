@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import awkward1
+import awkward1 as ak
 import gzip
 import pickle
 from coffea.lookup_tools.lookup_base import lookup_base
@@ -33,18 +34,10 @@ def corrected_msoftdrop(fatjets):
     sf = _softdrop_weight(fatjets.pt, fatjets.eta)
     sf = np.maximum(1e-5, sf)
     try:
-        # pancakes have the raw value
         dazsle_msd = fatjets.msoftdrop_raw
     except AttributeError:
-        # for nanoaod we have to work back to it
-        # TODO: this should be ak.sum(..., axis=-1) but not working
-        # FIXME
-        # try:
-        #     dazsle_msd = (fatjets.subjets * (1 - fatjets.subjets.rawFactor)).sum().mass
-        # except:
-        #     dazsle_msd = fatjets.mass
-        dazsle_msd = (fatjets.subjets * (1 - fatjets.subjets.rawFactor)).sum().mass
-    return dazsle_msd * sf
+        dazsle_msd = awkward1.sum(fatjets.subjets * (1 - fatjets.subjets.rawFactor), axis=-1)
+    return dazsle_msd.mass * sf
 
 
 def n2ddt_shift(fatjets, year='2017'):
