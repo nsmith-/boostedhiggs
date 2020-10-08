@@ -36,7 +36,7 @@ def corrected_msoftdrop(fatjets):
     try:
         dazsle_msd = fatjets.msoftdrop_raw
     except AttributeError:
-        dazsle_msd = awkward1.sum(fatjets.subjets * (1 - fatjets.subjets.rawFactor), axis=-1)
+        dazsle_msd = (fatjets.subjets * (1 - fatjets.subjets.rawFactor)).sum()
     return dazsle_msd.mass * sf
 
 
