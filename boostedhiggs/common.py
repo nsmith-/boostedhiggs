@@ -14,9 +14,11 @@ def getBosons(genparticles):
 def bosonFlavor(bosons):
     #try:
     childid = abs(bosons.children.pdgId)
+    #print(childid[~ak.is_none(childid)])
     # except:
     #     return np.zeros(len(bosons))
-    genflavor = ak.any(childid == 5, axis=-1) * 3 + ak.any(childid == 4, axis=-1) * 2 + ak.any(childid < 4, axis=-1) * 1
+    genflavor = ak.any(childid == 5, axis=-1) * 3 + ak.any(childid == 4, axis=-1) * 2 + ak.all(childid < 4, axis=-1) * 1
+    print(genflavor[~ak.is_none(genflavor)])
     return ak.fill_none(genflavor, 0)
 
                 
