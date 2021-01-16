@@ -23,6 +23,7 @@ from boostedhiggs.corrections import (
     fatjet_factory,
     add_jec_variables,
     met_factory,
+    lumiMasks,
 )
 
 
@@ -251,12 +252,10 @@ class HbbProcessor(processor.ProcessorABC):
 
         if isRealData:
             trigger = np.zeros(len(events), dtype='bool')
-            lumiMask = LumiMask(self._json_paths[self._year])
-            lumi_mask = lumiMask(events.run, events.luminosityBlock)
+            lumi_mask = lumiMasks[self._year](events.run, events.luminosityBlock)
             for t in self._triggers[self._year]:
                 if t in events.HLT.fields:
                     trigger = trigger | events.HLT[t]
-            # trigger = trigger & lumi_mask
             # print(f"Lumipass: {np.sum(lumi_mask)}/{len(lumi_mask)}")
         else:
             trigger = np.ones(len(events), dtype='bool')
@@ -266,12 +265,10 @@ class HbbProcessor(processor.ProcessorABC):
 
         if isRealData:
             trigger = np.zeros(len(events), dtype='bool')
-            lumiMask = LumiMask(self._json_paths[self._year])
-            lumi_mask = lumiMask(events.run, events.luminosityBlock)
+            lumi_mask = lumiMasks[self._year](events.run, events.luminosityBlock)
             for t in self._muontriggers[self._year]:
                 if t in events.HLT.fields:
                     trigger = trigger | events.HLT[t]
-            # trigger = trigger & lumi_mask
             # print(f"Lumipass: {np.sum(lumi_mask)}/{len(lumi_mask)}")
         else:
             trigger = np.ones(len(events), dtype='bool')
