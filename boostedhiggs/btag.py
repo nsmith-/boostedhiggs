@@ -1,7 +1,7 @@
 import os
 import numpy
 import logging
-import awkward1
+import awkward
 from coffea import processor, hist, util
 from coffea.lookup_tools.dense_lookup import dense_lookup
 from coffea.btag_tools import BTagScaleFactor
@@ -98,10 +98,10 @@ class BTagCorrector:
         # https://twiki.cern.ch/twiki/bin/viewauth/CMS/BTagSFMethods#1a_Event_reweighting_using_scale
         def combine(eff, sf):
             # tagged SF = SF*eff / eff = SF
-            tagged_sf = awkward1.prod(sf[passbtag], axis=-1)
+            tagged_sf = awkward.prod(sf[passbtag], axis=-1)
             # untagged SF = (1 - SF*eff) / (1 - eff)
-            untagged_sf = awkward1.prod(((1 - sf*eff) / (1 - eff))[~passbtag], axis=-1)
-            return awkward1.fill_none(tagged_sf * untagged_sf, 1.)  # TODO: move None guard to coffea
+            untagged_sf = awkward.prod(((1 - sf*eff) / (1 - eff))[~passbtag], axis=-1)
+            return awkward.fill_none(tagged_sf * untagged_sf, 1.)  # TODO: move None guard to coffea
 
         eff_nom = self.eff(jets.hadronFlavour, jets.pt, abseta)
         eff_statUp = self.eff_statUp(jets.hadronFlavour, jets.pt, abseta)
@@ -129,7 +129,7 @@ if __name__ == '__main__':
     b = BTagCorrector('2017', 'medium')
     b.sf.eval('central', numpy.array([0, 1, 2]), numpy.array([-2.3, 2., 0.]), numpy.array([20.1, 300., 10.]))
     b.sf.eval('down_uncorrelated', numpy.array([2, 2, 2]), numpy.array([-2.6, 2.9, 0.]), numpy.array([20.1, 300., 1000.]))
-    import awkward1 as ak
+    import awkward as ak
     b.sf.eval('central', ak.Array([[0], [1, 2]]), ak.Array([[-2.3], [2., 0.]]), ak.Array([[20.1], [300., 10.]]))
     import pickle
     bb = pickle.loads(pickle.dumps(b))
