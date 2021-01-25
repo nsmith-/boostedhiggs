@@ -1,7 +1,6 @@
 import os
 import numpy as np
-import awkward1
-import awkward1 as ak
+import awkward as ak
 import gzip
 import pickle
 from coffea.lookup_tools.lookup_base import lookup_base
@@ -36,17 +35,13 @@ _softdrop_weight = SoftDropWeight()
 def corrected_msoftdrop(fatjets, subjets):
     sf = _softdrop_weight(fatjets.pt, fatjets.eta)
     sf = np.maximum(1e-5, sf)
-    # try:
-    #     dazsle_msd = fatjets.msoftdrop_raw
-    # except AttributeError:
-    #     dazsle_msd = (fatjets.subjets * (1 - fatjets.subjets.rawFactor)).sum()
-    #     dazsle_msd = (fatjets.subjets).sum()
-    # return dazsle_msd.mass #* sf
-    cart = ak.cartesian([fatjets, subjets], nested=True)
-    idxes = ak.pad_none(ak.argsort(cart['0'].delta_r(cart['1'])), 2, axis=2)
-    sj1 = subjets[idxes[:,:,0]]
-    sj2 = subjets[idxes[:,:,1]]
-    return ((sj1 * (1 - sj1.rawFactor)) + (sj2 * (1 - sj2.rawFactor))).mass * sf
+    dazsle_msd = (fatjets.subjets * (1 - fatjets.subjets.rawFactor)).sum()
+    # cart = ak.cartesian([fatjets, subjets], nested=True)
+    # idxes = ak.pad_none(ak.argsort(cart['0'].delta_r(cart['1'])), 2, axis=2)
+    # sj1 = subjets[idxes[:,:,0]]
+    # sj2 = subjets[idxes[:,:,1]]
+    # return ((sj1 * (1 - sj1.rawFactor)) + (sj2 * (1 - sj2.rawFactor))).mass * sf
+    return dazsle_msd.mass * sf
 
 
 def n2ddt_shift(fatjets, year='2017'):
