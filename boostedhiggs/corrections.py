@@ -92,28 +92,40 @@ def add_jetTriggerWeight(weights, jet_msd, jet_pt, year):
 
 
 
-def jet_factory_factory(files):
-    from coffea.lookup_tools import extractor
-    from coffea.jetmet_tools import JECStack, CorrectedJetsFactory
+from coffea.lookup_tools import extractor
+from coffea.jetmet_tools import JECStack, CorrectedJetsFactory, CorrectedMETFactory
 
+jec_name_map = {
+    'JetPt': 'pt',
+    'JetMass': 'mass',
+    'JetEta': 'eta',
+    'JetA': 'area',
+    'ptGenJet': 'pt_gen',
+    'ptRaw': 'pt_raw',
+    'massRaw': 'mass_raw',
+    'Rho': 'event_rho',
+    'METpt': 'pt',
+    'METphi': 'phi',
+    'JetPhi': 'phi',
+    'UnClusteredEnergyDeltaX': 'MetUnclustEnUpDeltaX',
+    'UnClusteredEnergyDeltaY': 'MetUnclustEnUpDeltaY',
+}
+
+def jet_factory_factory(files):
     ext = extractor()
     ext.add_weight_sets([f"* * {file}" for file in files])
     ext.finalize()
 
     jec_stack = JECStack(ext.make_evaluator())
+    return CorrectedJetsFactory(jec_name_map, jec_stack)
 
-    name_map = jec_stack.blank_name_map
-    name_map['JetPt'] = 'pt'
-    name_map['JetMass'] = 'mass'
-    name_map['JetEta'] = 'eta'
-    name_map['JetA'] = 'area'
 
-    name_map['ptGenJet'] = 'pt_gen'
-    name_map['ptRaw'] = 'pt_raw'
-    name_map['massRaw'] = 'mass_raw'
-    name_map['Rho'] = 'rho'
-
-    return CorrectedJetsFactory(name_map, jec_stack)
+def add_jec_variables(jets, event_rho):
+    jets["pt_raw"] = (1 - jets.rawFactor)*jets.pt
+    jets["mass_raw"] = (1 - jets.rawFactor)*jets.mass
+    jets["pt_gen"] = ak.values_astype(ak.fill_none(jets.matched_gen.pt, 0), np.float32)
+    jets["event_rho"] = ak.broadcast_arrays(event_rho, jets.pt)[0]
+    return jets
 
 
 jet_factory = {
@@ -127,9 +139,9 @@ jet_factory = {
             os.path.join(DATA_DIR, "RegroupedV2_Summer16_07Aug2017_V11_MC_UncertaintySources_AK4PFchs.junc.txt.gz"),
             # https://github.com/cms-jet/JECDatabase/raw/master/textFiles/Summer16_07Aug2017_V11_MC/Summer16_07Aug2017_V11_MC_Uncertainty_AK4PFchs.txt
             os.path.join(DATA_DIR, "Summer16_07Aug2017_V11_MC_Uncertainty_AK4PFchs.junc.txt.gz"),
-            # https://github.com/cms-jet/JRDatabase/raw/master/textFiles/Summer16_25nsV1b/Summer16_25nsV1b_MC_PtResolution_AK4PFchs.txt
+            # https://github.com/cms-jet/JRDatabase/raw/master/textFiles/Summer16_25nsV1b_MC/Summer16_25nsV1b_MC_PtResolution_AK4PFchs.txt
             os.path.join(DATA_DIR, "Summer16_25nsV1b_MC_PtResolution_AK4PFchs.jr.txt.gz"),
-            # https://github.com/cms-jet/JRDatabase/raw/master/textFiles/Summer16_25nsV1b/Summer16_25nsV1b_MC_SF_AK4PFchs.txt
+            # https://github.com/cms-jet/JRDatabase/raw/master/textFiles/Summer16_25nsV1b_MC/Summer16_25nsV1b_MC_SF_AK4PFchs.txt
             os.path.join(DATA_DIR, "Summer16_25nsV1b_MC_SF_AK4PFchs.jersf.txt.gz"),
         ]
     ),
@@ -166,3 +178,57 @@ jet_factory = {
         ]
     ),
 }
+
+fatjet_factory = {
+    "2016mc": jet_factory_factory(
+        files=[
+            # https://github.com/cms-jet/JECDatabase/raw/master/textFiles/Summer16_07Aug2017_V11_MC/Summer16_07Aug2017_V11_MC_L1FastJet_AK8PFPuppi.txt
+            os.path.join(DATA_DIR, "Summer16_07Aug2017_V11_MC_L1FastJet_AK8PFPuppi.jec.txt.gz"),
+            # https://github.com/cms-jet/JECDatabase/raw/master/textFiles/Summer16_07Aug2017_V11_MC/Summer16_07Aug2017_V11_MC_L2Relative_AK8PFPuppi.txt
+            os.path.join(DATA_DIR, "Summer16_07Aug2017_V11_MC_L2Relative_AK8PFPuppi.jec.txt.gz"),
+            # https://github.com/cms-jet/JECDatabase/raw/master/textFiles/Summer16_07Aug2017_V11_MC/Summer16_07Aug2017_V11_MC_UncertaintySources_AK8PFPuppi.txt
+            os.path.join(DATA_DIR, "Summer16_07Aug2017_V11_MC_UncertaintySources_AK8PFPuppi.junc.txt.gz"),
+            # https://github.com/cms-jet/JECDatabase/raw/master/textFiles/Summer16_07Aug2017_V11_MC/Summer16_07Aug2017_V11_MC_Uncertainty_AK8PFPuppi.txt
+            os.path.join(DATA_DIR, "Summer16_07Aug2017_V11_MC_Uncertainty_AK8PFPuppi.junc.txt.gz"),
+            # https://github.com/cms-jet/JRDatabase/raw/master/textFiles/Summer16_25nsV1b_MC/Summer16_25nsV1b_MC_PtResolution_AK8PFPuppi.txt
+            os.path.join(DATA_DIR, "Summer16_25nsV1b_MC_PtResolution_AK8PFPuppi.jr.txt.gz"),
+            # https://github.com/cms-jet/JRDatabase/raw/master/textFiles/Summer16_25nsV1b_MC/Summer16_25nsV1b_MC_SF_AK8PFPuppi.txt
+            os.path.join(DATA_DIR, "Summer16_25nsV1b_MC_SF_AK8PFPuppi.jersf.txt.gz"),
+        ]
+    ),
+    "2017mc": jet_factory_factory(
+        files=[
+            # https://github.com/cms-jet/JECDatabase/raw/master/textFiles/Fall17_17Nov2017_V32_MC/Fall17_17Nov2017_V32_MC_L1FastJet_AK8PFPuppi.txt
+            os.path.join(DATA_DIR, "Fall17_17Nov2017_V32_MC_L1FastJet_AK8PFPuppi.jec.txt.gz"),
+            # https://github.com/cms-jet/JECDatabase/raw/master/textFiles/Fall17_17Nov2017_V32_MC/Fall17_17Nov2017_V32_MC_L2Relative_AK8PFPuppi.txt
+            os.path.join(DATA_DIR, "Fall17_17Nov2017_V32_MC_L2Relative_AK8PFPuppi.jec.txt.gz"),
+            # https://raw.githubusercontent.com/cms-jet/JECDatabase/master/textFiles/Fall17_17Nov2017_V32_MC/Fall17_17Nov2017_V32_MC_UncertaintySources_AK8PFPuppi.txt
+            os.path.join(DATA_DIR, "Fall17_17Nov2017_V32_MC_UncertaintySources_AK8PFPuppi.junc.txt.gz"),
+            # https://github.com/cms-jet/JECDatabase/raw/master/textFiles/Fall17_17Nov2017_V32_MC/Fall17_17Nov2017_V32_MC_Uncertainty_AK8PFPuppi.txt
+            os.path.join(DATA_DIR, "Fall17_17Nov2017_V32_MC_Uncertainty_AK8PFPuppi.junc.txt.gz"),
+            # https://github.com/cms-jet/JRDatabase/raw/master/textFiles/Fall17_V3b_MC/Fall17_V3b_MC_PtResolution_AK8PFPuppi.txt
+            os.path.join(DATA_DIR, "Fall17_V3b_MC_PtResolution_AK8PFPuppi.jr.txt.gz"),
+            # https://github.com/cms-jet/JRDatabase/raw/master/textFiles/Fall17_V3b_MC/Fall17_V3b_MC_SF_AK8PFPuppi.txt
+            os.path.join(DATA_DIR, "Fall17_V3b_MC_SF_AK8PFPuppi.jersf.txt.gz"),
+        ]
+    ),
+    "2018mc": jet_factory_factory(
+        files=[
+            # https://github.com/cms-jet/JECDatabase/raw/master/textFiles/Autumn18_V19_MC/Autumn18_V19_MC_L1FastJet_AK8PFPuppi.txt
+            os.path.join(DATA_DIR, "Autumn18_V19_MC_L1FastJet_AK8PFPuppi.jec.txt.gz"),
+            # https://github.com/cms-jet/JECDatabase/raw/master/textFiles/Autumn18_V19_MC/Autumn18_V19_MC_L2Relative_AK8PFPuppi.txt
+            os.path.join(DATA_DIR, "Autumn18_V19_MC_L2Relative_AK8PFPuppi.jec.txt.gz"),
+            # https://raw.githubusercontent.com/cms-jet/JECDatabase/master/textFiles/Autumn18_V19_MC/Autumn18_V19_MC_UncertaintySources_AK8PFPuppi.txt
+            os.path.join(DATA_DIR, "Autumn18_V19_MC_UncertaintySources_AK8PFPuppi.junc.txt.gz"),
+            # https://github.com/cms-jet/JECDatabase/raw/master/textFiles/Autumn18_V19_MC/Autumn18_V19_MC_Uncertainty_AK8PFPuppi.txt
+            os.path.join(DATA_DIR, "Autumn18_V19_MC_Uncertainty_AK8PFPuppi.junc.txt.gz"),
+            # https://github.com/cms-jet/JRDatabase/raw/master/textFiles/Autumn18_V7b_MC/Autumn18_V7b_MC_PtResolution_AK8PFPuppi.txt
+            os.path.join(DATA_DIR, "Autumn18_V7b_MC_PtResolution_AK8PFPuppi.jr.txt.gz"),
+            # https://github.com/cms-jet/JRDatabase/raw/master/textFiles/Autumn18_V7b_MC/Autumn18_V7b_MC_SF_AK8PFPuppi.txt
+            os.path.join(DATA_DIR, "Autumn18_V7b_MC_SF_AK8PFPuppi.jersf.txt.gz"),
+        ]
+    ),
+}
+
+
+met_factory = CorrectedMETFactory(jec_name_map)
