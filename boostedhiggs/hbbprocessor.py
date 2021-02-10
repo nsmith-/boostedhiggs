@@ -25,7 +25,9 @@ logger = logging.getLogger(__name__)
 
 
 class HbbProcessor(processor.ProcessorABC):
-    def __init__(self, year='2017', jet_arbitration='pt', v2=False, v3=False, v4=False):
+    def __init__(self, year='2017', jet_arbitration='pt', v2=False, v3=False, v4=False,
+            nnlops_rew=False,
+        ):
         # v2 DDXv2
         # v3 ParticleNet
         # v4 mix
@@ -33,6 +35,7 @@ class HbbProcessor(processor.ProcessorABC):
         self._v2 = v2
         self._v3 = v3
         self._v4 = v4
+        self.nnlops_rew = nnlops_rew
         self._jet_arbitration = jet_arbitration
 
         self._btagSF = BTagCorrector(year, 'medium')
@@ -350,6 +353,10 @@ class HbbProcessor(processor.ProcessorABC):
             weights_wtag = copy.deepcopy(weights)
             add_jetTriggerWeight(weights, candidatejet.msdcorr, candidatejet.pt, self._year)
             output['btagWeight'].fill(dataset=dataset, val=self._btagSF.addBtagWeight(weights, ak4_away))
+            if self.nnlops_rew and dataset in ['GluGluHToCC_M125_13TeV_powheg_pythia8']:
+                _rew = np.poly1d(np.array([-1.00926156e-03,  1.94389194]))
+                weights.add('minlo_rew', _rew(ak.to_numpy(genBosonPt)))
+
             logger.debug("Weight statistics: %r" % weights.weightStatistics)
 
         msd_matched = candidatejet.msdcorr * self._msdSF[self._year] * (genflavor > 0) + candidatejet.msdcorr * (genflavor == 0)
