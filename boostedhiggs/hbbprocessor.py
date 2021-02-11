@@ -227,7 +227,7 @@ class HbbProcessor(processor.ProcessorABC):
         weights = Weights(len(events))
         weights_wtag = copy.deepcopy(weights)
         output = self.accumulator.identity()
-        if not isRealData:
+        if shift_name is None and not isRealData:
             output['sumw'][dataset] += ak.sum(events.genWeight)
 
         if isRealData:
@@ -389,7 +389,8 @@ class HbbProcessor(processor.ProcessorABC):
             add_VJets_NLOkFactor(weights, genBosonPt, self._year, dataset)
             weights_wtag = copy.deepcopy(weights)
             add_jetTriggerWeight(weights, candidatejet.msdcorr, candidatejet.pt, self._year)
-            output['btagWeight'].fill(dataset=dataset, val=self._btagSF.addBtagWeight(weights, ak4_away))
+            if shift_name is None:
+                output['btagWeight'].fill(dataset=dataset, val=self._btagSF.addBtagWeight(weights, ak4_away))
             logger.debug("Weight statistics: %r" % weights.weightStatistics)
 
         msd_matched = candidatejet.msdcorr * self._msdSF[self._year] * (genflavor > 0) + candidatejet.msdcorr * (genflavor == 0)
@@ -412,25 +413,26 @@ class HbbProcessor(processor.ProcessorABC):
                 ar = ak.to_numpy(ak.fill_none(val[cut], np.nan))
                 return ar
 
-        for region, cuts in regions.items():
-            # allcuts = set(["id"])
-            allcuts = set([])
-            cut = selection.all(*allcuts)
-            output['cutflow_msd'].fill(dataset=dataset, region=region, genflavor=normalize(genflavor, None),
-                                   cut=0, weight=weights.weight(), msd=normalize(msd_matched, None))
-            output['cutflow_eta'].fill(dataset=dataset, region=region, genflavor=normalize(genflavor, cut),
-                                   cut=0, weight=weights.weight()[cut], eta=normalize(candidatejet.eta, cut))
-            output['cutflow_pt'].fill(dataset=dataset, region=region, genflavor=normalize(genflavor, cut),
-                                   cut=0, weight=weights.weight()[cut], pt=normalize(candidatejet.pt, cut))
-            for i, cut in enumerate(cuts + ['ddcvbpass', 'ddcpass']):
-                allcuts.add(cut)
+        if shift_name is None:
+            for region, cuts in regions.items():
+                # allcuts = set(["id"])
+                allcuts = set([])
                 cut = selection.all(*allcuts)
-                output['cutflow_msd'].fill(dataset=dataset, region=region, genflavor=normalize(genflavor, cut),
-                                       cut=i + 1, weight=weights.weight()[cut], msd=normalize(msd_matched, cut))
+                output['cutflow_msd'].fill(dataset=dataset, region=region, genflavor=normalize(genflavor, None),
+                                    cut=0, weight=weights.weight(), msd=normalize(msd_matched, None))
                 output['cutflow_eta'].fill(dataset=dataset, region=region, genflavor=normalize(genflavor, cut),
-                        cut=i + 1, weight=weights.weight()[cut], eta=normalize(candidatejet.eta, cut))
+                                    cut=0, weight=weights.weight()[cut], eta=normalize(candidatejet.eta, cut))
                 output['cutflow_pt'].fill(dataset=dataset, region=region, genflavor=normalize(genflavor, cut),
-                        cut=i + 1, weight=weights.weight()[cut], pt=normalize(candidatejet.pt, cut))
+                                    cut=0, weight=weights.weight()[cut], pt=normalize(candidatejet.pt, cut))
+                for i, cut in enumerate(cuts + ['ddcvbpass', 'ddcpass']):
+                    allcuts.add(cut)
+                    cut = selection.all(*allcuts)
+                    output['cutflow_msd'].fill(dataset=dataset, region=region, genflavor=normalize(genflavor, cut),
+                                        cut=i + 1, weight=weights.weight()[cut], msd=normalize(msd_matched, cut))
+                    output['cutflow_eta'].fill(dataset=dataset, region=region, genflavor=normalize(genflavor, cut),
+                            cut=i + 1, weight=weights.weight()[cut], eta=normalize(candidatejet.eta, cut))
+                    output['cutflow_pt'].fill(dataset=dataset, region=region, genflavor=normalize(genflavor, cut),
+                            cut=i + 1, weight=weights.weight()[cut], pt=normalize(candidatejet.pt, cut))
 
 
         if shift_name is None:
@@ -539,12 +541,13 @@ class HbbProcessor(processor.ProcessorABC):
 
         for region in regions:
             cut = selection.all(*(set(regions[region]) - {'n2ddt'}))
-            output['nminus1_n2ddt'].fill(
-                dataset=dataset,
-                region=region,
-                n2ddt=normalize(candidatejet.n2ddt, cut),
-                weight=weights.weight()[cut],
-            )
+            if shift_name is None:
+                output['nminus1_n2ddt'].fill(
+                    dataset=dataset,
+                    region=region,
+                    n2ddt=normalize(candidatejet.n2ddt, cut),
+                    weight=weights.weight()[cut],
+                )
             for systematic in systematics:
                 if isRealData and systematic is not None:
                     continue
