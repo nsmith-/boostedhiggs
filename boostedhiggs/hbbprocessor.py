@@ -35,7 +35,7 @@ class HbbProcessor(processor.ProcessorABC):
         self._v2 = v2
         self._v3 = v3
         self._v4 = v4
-        self.nnlops_rew = nnlops_rew
+        self._nnlops_rew = nnlops_rew
         self._jet_arbitration = jet_arbitration
 
         self._btagSF = BTagCorrector(year, 'medium')
@@ -165,11 +165,12 @@ class HbbProcessor(processor.ProcessorABC):
                 hist.Cat('region', 'Region'),
                 hist.Cat('systematic', 'Systematic'),
                 hist.Bin('genflavor', 'Gen. jet flavor', [0, 1, 2, 3, 4]), #
-                hist.Bin('pt', r'Jet $p_{T}$ [GeV]', 100, 200, 1200),
-                #hist.Bin('msd', r'Jet $m_{sd}$', 23, 40, 201),
-                hist.Bin('msd', r'Jet $m_{sd}$', 30, 40, 201),
-                hist.Bin('n2ddt', 'N2ddt value', 20, -0.5, 0.5),
+                hist.Bin('pt', r'Jet $p_{T}$ [GeV]', [200, 450, 675, 1200]),
+                hist.Bin('msd', r'Jet $m_{sd}$', 46, 40, 201)
+                #hist.Bin('msd', r'Jet $m_{sd}$', 30, 40, 201),
+                hist.Bin('n2ddt', 'N2ddt value', 10, -0.5, 0.5),
                 hist.Bin('ddcvb', r'Jet ddcvb score', [0, 0.017, 0.2, 1]),
+                hist.Bin('ddc', r'Jet ddc score', [0, 0.1, 0.44, .83, 1]),
             ),
             'genresponse_noweight': hist.Hist(
                 'Events',
@@ -353,8 +354,9 @@ class HbbProcessor(processor.ProcessorABC):
             weights_wtag = copy.deepcopy(weights)
             add_jetTriggerWeight(weights, candidatejet.msdcorr, candidatejet.pt, self._year)
             output['btagWeight'].fill(dataset=dataset, val=self._btagSF.addBtagWeight(weights, ak4_away))
-            if self.nnlops_rew and dataset in ['GluGluHToCC_M125_13TeV_powheg_pythia8']:
-                _rew = np.poly1d(np.array([-1.00926156e-03,  1.94389194]))
+            if self._nnlops_rew and dataset in ['GluGluHToCC_M125_13TeV_powheg_pythia8']:
+                #_rew = np.poly1d(np.array([-1.00926156e-03,  1.94389194]))
+                _rew = np.poly1d(np.array([-5.22406197e-04,  1.04384751]))
                 weights.add('minlo_rew', _rew(ak.to_numpy(genBosonPt)))
 
             logger.debug("Weight statistics: %r" % weights.weightStatistics)
@@ -461,6 +463,7 @@ class HbbProcessor(processor.ProcessorABC):
                     msd=normalize(msd_matched, cut),
                     n2ddt=normalize(candidatejet.n2ddt, cut),
                     ddcvb=normalize(cvb, cut),
+                    ddc=normalize(cvl, cut),
                     weight=weight_wtag,
                 )
             if wmod is not None:
