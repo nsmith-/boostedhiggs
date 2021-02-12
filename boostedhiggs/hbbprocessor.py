@@ -166,7 +166,7 @@ class HbbProcessor(processor.ProcessorABC):
                 hist.Cat('systematic', 'Systematic'),
                 hist.Bin('genflavor', 'Gen. jet flavor', [0, 1, 2, 3, 4]), #
                 hist.Bin('pt', r'Jet $p_{T}$ [GeV]', [200, 450, 675, 1200]),
-                hist.Bin('msd', r'Jet $m_{sd}$', 46, 40, 201)
+                hist.Bin('msd', r'Jet $m_{sd}$', 46, 40, 201),
                 #hist.Bin('msd', r'Jet $m_{sd}$', 30, 40, 201),
                 hist.Bin('n2ddt', 'N2ddt value', 10, -0.5, 0.5),
                 hist.Bin('ddcvb', r'Jet ddcvb score', [0, 0.017, 0.2, 1]),
