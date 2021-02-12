@@ -139,6 +139,13 @@ jet_factory = {
             os.path.join(DATA_DIR, "Summer16_25nsV1b_MC_SF_AK4PFchs.jersf.txt.gz"),
         ]
     ),
+    "2016mcNOJER": jet_factory_factory(
+        files=[
+            os.path.join(DATA_DIR, "Summer16_07Aug2017_V11_MC_L1FastJet_AK4PFchs.jec.txt.gz"),
+            os.path.join(DATA_DIR, "Summer16_07Aug2017_V11_MC_L2Relative_AK4PFchs.jec.txt.gz"),
+            os.path.join(DATA_DIR, "Summer16_07Aug2017_V11_MC_Uncertainty_AK4PFchs.junc.txt.gz"),
+        ]
+    ),
     "2017mc": jet_factory_factory(
         files=[
             # https://github.com/cms-jet/JECDatabase/raw/master/textFiles/Fall17_17Nov2017_V32_MC/Fall17_17Nov2017_V32_MC_L1FastJet_AK4PFchs.txt
@@ -155,6 +162,13 @@ jet_factory = {
             os.path.join(DATA_DIR, "Fall17_V3b_MC_SF_AK4PFchs.jersf.txt.gz"),
         ]
     ),
+    "2017mcNOJER": jet_factory_factory(
+        files=[
+            os.path.join(DATA_DIR, "Fall17_17Nov2017_V32_MC_L1FastJet_AK4PFchs.jec.txt.gz"),
+            os.path.join(DATA_DIR, "Fall17_17Nov2017_V32_MC_L2Relative_AK4PFchs.jec.txt.gz"),
+            os.path.join(DATA_DIR, "Fall17_17Nov2017_V32_MC_Uncertainty_AK4PFchs.junc.txt.gz"),
+        ]
+    ),
     "2018mc": jet_factory_factory(
         files=[
             # https://github.com/cms-jet/JECDatabase/raw/master/textFiles/Autumn18_V19_MC/Autumn18_V19_MC_L1FastJet_AK4PFchs.txt
@@ -169,6 +183,13 @@ jet_factory = {
             os.path.join(DATA_DIR, "Autumn18_V7b_MC_PtResolution_AK4PFchs.jr.txt.gz"),
             # https://github.com/cms-jet/JRDatabase/raw/master/textFiles/Autumn18_V7b_MC/Autumn18_V7b_MC_SF_AK4PFchs.txt
             os.path.join(DATA_DIR, "Autumn18_V7b_MC_SF_AK4PFchs.jersf.txt.gz"),
+        ]
+    ),
+    "2018mcNOJER": jet_factory_factory(
+        files=[
+            os.path.join(DATA_DIR, "Autumn18_V19_MC_L1FastJet_AK4PFchs.jec.txt.gz"),
+            os.path.join(DATA_DIR, "Autumn18_V19_MC_L2Relative_AK4PFchs.jec.txt.gz"),
+            os.path.join(DATA_DIR, "Autumn18_V19_MC_Uncertainty_AK4PFchs.junc.txt.gz"),
         ]
     ),
 }
@@ -190,6 +211,13 @@ fatjet_factory = {
             os.path.join(DATA_DIR, "Summer16_25nsV1b_MC_SF_AK8PFPuppi.jersf.txt.gz"),
         ]
     ),
+    "2016mcNOJER": jet_factory_factory(
+        files=[
+            os.path.join(DATA_DIR, "Summer16_07Aug2017_V11_MC_L1FastJet_AK8PFPuppi.jec.txt.gz"),
+            os.path.join(DATA_DIR, "Summer16_07Aug2017_V11_MC_L2Relative_AK8PFPuppi.jec.txt.gz"),
+            os.path.join(DATA_DIR, "Summer16_07Aug2017_V11_MC_Uncertainty_AK8PFPuppi.junc.txt.gz"),
+        ]
+    ),
     "2017mc": jet_factory_factory(
         files=[
             # https://github.com/cms-jet/JECDatabase/raw/master/textFiles/Fall17_17Nov2017_V32_MC/Fall17_17Nov2017_V32_MC_L1FastJet_AK8PFPuppi.txt
@@ -206,6 +234,13 @@ fatjet_factory = {
             os.path.join(DATA_DIR, "Fall17_V3b_MC_SF_AK8PFPuppi.jersf.txt.gz"),
         ]
     ),
+    "2017mcNOJER": jet_factory_factory(
+        files=[
+            os.path.join(DATA_DIR, "Fall17_17Nov2017_V32_MC_L1FastJet_AK8PFPuppi.jec.txt.gz"),
+            os.path.join(DATA_DIR, "Fall17_17Nov2017_V32_MC_L2Relative_AK8PFPuppi.jec.txt.gz"),
+            os.path.join(DATA_DIR, "Fall17_17Nov2017_V32_MC_Uncertainty_AK8PFPuppi.junc.txt.gz"),
+        ]
+    ),
     "2018mc": jet_factory_factory(
         files=[
             # https://github.com/cms-jet/JECDatabase/raw/master/textFiles/Autumn18_V19_MC/Autumn18_V19_MC_L1FastJet_AK8PFPuppi.txt
@@ -220,6 +255,13 @@ fatjet_factory = {
             os.path.join(DATA_DIR, "Autumn18_V7b_MC_PtResolution_AK8PFPuppi.jr.txt.gz"),
             # https://github.com/cms-jet/JRDatabase/raw/master/textFiles/Autumn18_V7b_MC/Autumn18_V7b_MC_SF_AK8PFPuppi.txt
             os.path.join(DATA_DIR, "Autumn18_V7b_MC_SF_AK8PFPuppi.jersf.txt.gz"),
+        ]
+    ),
+    "2018mcNOJER": jet_factory_factory(
+        files=[
+            os.path.join(DATA_DIR, "Autumn18_V19_MC_L1FastJet_AK8PFPuppi.jec.txt.gz"),
+            os.path.join(DATA_DIR, "Autumn18_V19_MC_L2Relative_AK8PFPuppi.jec.txt.gz"),
+            os.path.join(DATA_DIR, "Autumn18_V19_MC_Uncertainty_AK8PFPuppi.junc.txt.gz"),
         ]
     ),
 }
