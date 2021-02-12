@@ -28,20 +28,16 @@ from boostedhiggs.corrections import (
 logger = logging.getLogger(__name__)
 
 
-def shifter(*path):
-    def try_shift(objs):
-        """Try to access a shifted collection, e.g. jets.JEC.up If not available, return the base collection"""
-        try:
-            return objs[path]
-        except ValueError:
-            # Why not KeyError?
-            return objs
-
-    return try_shift
+def update(events, collections):
+    """Return a shallow copy of events array with some collections swapped out"""
+    out = events
+    for name, value in collections.items():
+        out = ak.with_field(out, value, name)
+    return out
 
 
 class HbbProcessor(processor.ProcessorABC):
-    def __init__(self, year='2017', jet_arbitration='pt', v2=False, v3=False, v4=False):
+    def __init__(self, year='2017', jet_arbitration='pt', v2=False, v3=False, v4=False, skipJER=False):
         # v2 DDXv2
         # v3 ParticleNet
         # v4 mix
@@ -50,6 +46,7 @@ class HbbProcessor(processor.ProcessorABC):
         self._v3 = v3
         self._v4 = v4
         self._jet_arbitration = jet_arbitration
+        self._skipJER = skipJER
 
         self._btagSF = BTagCorrector(year, 'medium')
 
@@ -210,17 +207,29 @@ class HbbProcessor(processor.ProcessorABC):
         dataset = events.metadata['dataset']
         isRealData = not hasattr(events, "genWeight")
         output = self.accumulator.identity()
+
+        if isRealData:
+            # Nominal JEC are already applied in data
+            output += self.process_shift(events, None)
+            return output
+
         jec_cache = {}
-        output += self.process_shift(events, lambda objs: objs, None, jec_cache)
-        output += self.process_shift(events, shifter("JES", "up"), "JESUp", jec_cache)
-        output += self.process_shift(events, shifter("JES", "down"), "JESDown", jec_cache)
-        output += self.process_shift(events, shifter("JER", "up"), "JERUp", jec_cache)
-        output += self.process_shift(events, shifter("JER", "up"), "JERDown", jec_cache)
-        output += self.process_shift(events, shifter("MET_UnclusteredEnergy", "up"), "UESUp", jec_cache)
-        output += self.process_shift(events, shifter("MET_UnclusteredEnergy", "down"), "UESDown", jec_cache)
+        nojer = "NOJER" if self._skipJER else ""
+        fatjets = fatjet_factory[f"{self._year}mc{nojer}"].build(add_jec_variables(events.FatJet, events.fixedGridRhoFastjetAll), jec_cache)
+        jets = jet_factory[f"{self._year}mc{nojer}"].build(add_jec_variables(events.Jet, events.fixedGridRhoFastjetAll), jec_cache)
+        met = met_factory.build(events.MET, jets, jec_cache)
+
+        output += self.process_shift(update(events, {"Jet": jets, "FatJet": fatjets, "MET": met}), None)
+        output += self.process_shift(update(events, {"Jet": jets.JES_jes.up, "FatJet": fatjets.JES_jes.up, "MET": met.JES_jes.up}), "JESUp")
+        output += self.process_shift(update(events, {"Jet": jets.JES_jes.down, "FatJet": fatjets.JES_jes.down, "MET": met.JES_jes.down}), "JESDown")
+        if not self._skipJER:
+            output += self.process_shift(update(events, {"Jet": jets.JER.up, "FatJet": fatjets.JER.up, "MET": met.JER.up}), "JERUp")
+            output += self.process_shift(update(events, {"Jet": jets.JER.down, "FatJet": fatjets.JER.down, "MET": met.JER.down}), "JERDown")
+        output += self.process_shift(update(events, {"Jet": jets, "FatJet": fatjets, "MET": met.MET_UnclusteredEnergy.up}), "UESUp")
+        output += self.process_shift(update(events, {"Jet": jets, "FatJet": fatjets, "MET": met.MET_UnclusteredEnergy.down}), "UESDown")
         return output
 
-    def process_shift(self, events, shift_fn, shift_name, jec_cache):
+    def process_shift(self, events, shift_name):
         dataset = events.metadata['dataset']
         isRealData = not hasattr(events, "genWeight")
         selection = PackedSelection()
@@ -256,11 +265,8 @@ class HbbProcessor(processor.ProcessorABC):
             trigger = np.ones(len(events), dtype='bool')
         selection.add('muontrigger', trigger)
 
-        if isRealData:
-            fatjets = events.FatJet
-        else:
-            fatjets = shift_fn(fatjet_factory[f"{self._year}mc"].build(add_jec_variables(events.FatJet, events.fixedGridRhoFastjetAll), jec_cache))
         
+        fatjets = events.FatJet
         fatjets['msdcorr'] = corrected_msoftdrop(fatjets)
         fatjets['qcdrho'] = 2 * np.log(fatjets.msdcorr / fatjets.pt)
         fatjets['n2ddt'] = fatjets.n2b1 - n2ddt_shift(fatjets, year=self._year)
@@ -314,13 +320,7 @@ class HbbProcessor(processor.ProcessorABC):
             selection.add('ddcpass', (candidatejet.btagDDCvLV2 >= 0.83))
             selection.add('ddcvbpass', (candidatejet.btagDDCvBV2 >= 0.2))
 
-        if isRealData:
-            jets = events.Jet
-            met = events.MET
-        else:
-            jets = shift_fn(jet_factory[f"{self._year}mc"].build(add_jec_variables(events.Jet, events.fixedGridRhoFastjetAll), jec_cache))
-            met = shift_fn(met_factory.build(events.MET, jets, jec_cache))
-
+        jets = events.Jet
         jets = jets[
             (jets.pt > 30.)
             & (abs(jets.eta) < 2.5)
@@ -336,6 +336,7 @@ class HbbProcessor(processor.ProcessorABC):
         ak4_away = jets[dphi > 0.8]
         selection.add('ak4btagMedium08', ak.max(ak4_away.btagDeepB, axis=1, mask_identity=False) > BTagEfficiency.btagWPs[self._year]['medium'])
 
+        met = events.MET
         selection.add('met', met.pt < 140.)
 
         goodmuon = (
