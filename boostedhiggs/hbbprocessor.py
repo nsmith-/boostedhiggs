@@ -397,7 +397,6 @@ class HbbProcessor(processor.ProcessorABC):
             if shift_name is None:
                 output['btagWeight'].fill(dataset=dataset, val=self._btagSF.addBtagWeight(weights, ak4_away))
             if self._nnlops_rew and dataset in ['GluGluHToCC_M125_13TeV_powheg_pythia8']:
-                #_rew = np.poly1d(np.array([-1.00926156e-03,  1.94389194]))
                 _rew = np.poly1d(np.array([-5.22406197e-04,  1.04384751]))
                 weights.add('minlo_rew', _rew(ak.to_numpy(genBosonPt)))            
             logger.debug("Weight statistics: %r" % weights.weightStatistics)
