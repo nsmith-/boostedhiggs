@@ -4,7 +4,7 @@ import awkward as ak
 import gzip
 import pickle
 from coffea.lookup_tools.lookup_base import lookup_base
-
+from coffea import util
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), 'data')
 
@@ -15,6 +15,8 @@ with gzip.open(os.path.join(DATA_DIR, 'corrections.pkl.gz')) as fin:
 compiled['2017_pileupweight']._values = np.minimum(5, compiled['2017_pileupweight']._values)
 compiled['2018_pileupweight']._values = np.minimum(5, compiled['2018_pileupweight']._values)
 
+filename = os.path.join(DATA_DIR, 'powhegToMinloPtCC.coffea')
+compiled['powheg_to_nnlops'] = util.load(filename)
 
 class SoftDropWeight(lookup_base):
     def _evaluate(self, pt, eta):
@@ -41,6 +43,10 @@ def corrected_msoftdrop(fatjets):
 
 def n2ddt_shift(fatjets, year='2017'):
     return compiled[f'{year}_n2ddt_rho_pt'](fatjets.qcdrho, fatjets.pt)
+
+
+def powheg_to_nnlops(genpt):
+    return compiled['powheg_to_nnlops'](genpt)
 
 
 def add_pileup_weight(weights, nPU, year='2017', dataset=None):

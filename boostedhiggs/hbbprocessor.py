@@ -15,6 +15,7 @@ from boostedhiggs.common import (
 from boostedhiggs.corrections import (
     corrected_msoftdrop,
     n2ddt_shift,
+    powheg_to_nnlops,
     add_pileup_weight,
     add_VJets_NLOkFactor,
     add_jetTriggerWeight,
@@ -38,7 +39,7 @@ def update(events, collections):
 
 class HbbProcessor(processor.ProcessorABC):
     def __init__(self, year='2017', jet_arbitration='pt', v2=False, v3=False, v4=False,
-            nnlops_rew=False,  skipJER=False
+            nnlops_rew=False,  skipJER=False, tightMatch=False,
         ):
         # v2 DDXv2
         # v3 ParticleNet
@@ -47,9 +48,10 @@ class HbbProcessor(processor.ProcessorABC):
         self._v2 = v2
         self._v3 = v3
         self._v4 = v4
-        self._nnlops_rew = nnlops_rew
+        self._nnlops_rew = nnlops_rew # for 2018, reweight POWHEG to NNLOPS
         self._jet_arbitration = jet_arbitration
         self._skipJER = skipJER
+        self._tightMatch = tightMatch
 
         self._btagSF = BTagCorrector(year, 'medium')
 
@@ -191,7 +193,9 @@ class HbbProcessor(processor.ProcessorABC):
                 hist.Cat('region', 'Region'),
                 hist.Cat('systematic', 'Systematic'),
                 hist.Bin('pt', r'Jet $p_{T}$ [GeV]', [450, 500, 550, 600, 675, 800, 1200]),
-                hist.Bin('genpt', r'Generated Higgs $p_{T}$ [GeV]', [200, 300, 450, 650, 7500]),
+                # hist.Bin('pt', r'Jet $p_{T}$ [GeV]', np.geomspace(400, 1200, 60)),
+                hist.Bin('genpt', r'Jet $p_{T}$ [GeV]', np.geomspace(400, 1200, 60)),
+                #hist.Bin('genpt', r'Generated Higgs $p_{T}$ [GeV]', [200, 300, 450, 650, 7500]),
             ),
             'genresponse': hist.Hist(
                 'Events',
@@ -199,6 +203,8 @@ class HbbProcessor(processor.ProcessorABC):
                 hist.Cat('region', 'Region'),
                 hist.Cat('systematic', 'Systematic'),
                 hist.Bin('pt', r'Jet $p_{T}$ [GeV]', [450, 500, 550, 600, 675, 800, 1200]),
+                # hist.Bin('genpt', r'Jet $p_{T}$ [GeV]', np.geomspace(400, 1200, 60)),
+                # hist.Bin('pt', r'Jet $p_{T}$ [GeV]', np.geomspace(400, 1200, 60)),
                 hist.Bin('genpt', r'Generated Higgs $p_{T}$ [GeV]', [200, 300, 450, 650, 7500]),
             ),
         })
@@ -250,11 +256,13 @@ class HbbProcessor(processor.ProcessorABC):
             for t in self._triggers[self._year]:
                 if t in events.HLT.fields:
                     trigger = trigger | events.HLT[t]
-            trigger = trigger & lumi_mask
+            # trigger = trigger & lumi_mask
             # print(f"Lumipass: {np.sum(lumi_mask)}/{len(lumi_mask)}")
         else:
             trigger = np.ones(len(events), dtype='bool')
+            lumi_mask  = np.ones(len(events), dtype='bool')
         selection.add('trigger', trigger)
+        selection.add('lumimask', lumi_mask)
 
         if isRealData:
             trigger = np.zeros(len(events), dtype='bool')
@@ -263,11 +271,13 @@ class HbbProcessor(processor.ProcessorABC):
             for t in self._muontriggers[self._year]:
                 if t in events.HLT.fields:
                     trigger = trigger | events.HLT[t]
-            trigger = trigger & lumi_mask
+            # trigger = trigger & lumi_mask
             # print(f"Lumipass: {np.sum(lumi_mask)}/{len(lumi_mask)}")
         else:
             trigger = np.ones(len(events), dtype='bool')
+            lumi_mask  = np.ones(len(events), dtype='bool')
         selection.add('muontrigger', trigger)
+        selection.add('lumimask', lumi_mask)
 
         
         fatjets = events.FatJet
@@ -321,8 +331,8 @@ class HbbProcessor(processor.ProcessorABC):
             selection.add('ddcvbpass', (candidatejet.btagDDCvB >= 0.2))
         else:
             selection.add('ddbpass', (candidatejet.btagDDBvLV2 >= 0.89))
-            selection.add('ddcpass', (candidatejet.btagDDCvLV2 >= 0.83))
-            selection.add('ddcvbpass', (candidatejet.btagDDCvBV2 >= 0.2))
+            selection.add('ddcpass', (candidatejet.btagDDCvLV2 >= 0.44))
+            selection.add('ddcvbpass', (candidatejet.btagDDCvBV2 >= 0.017))
 
         jets = events.Jet
         jets = jets[
@@ -389,9 +399,12 @@ class HbbProcessor(processor.ProcessorABC):
             add_pileup_weight(weights, events.Pileup.nPU, self._year, dataset)
             bosons = getBosons(events.GenPart)
             matchedBoson = candidatejet.nearest(bosons, axis=None, threshold=0.8)
-            match_mask = ((candidatejet.pt - matchedBoson.pt)/matchedBoson.pt < 0.5) & ((candidatejet.msdcorr - matchedBoson.mass)/matchedBoson.mass < 0.3)
-            selmatchedBoson = ak.mask(matchedBoson, match_mask)
-            genflavor = bosonFlavor(selmatchedBoson)
+            if self._tightMatch:
+                match_mask = ((candidatejet.pt - matchedBoson.pt)/matchedBoson.pt < 0.5) & ((candidatejet.msdcorr - matchedBoson.mass)/matchedBoson.mass < 0.3)
+                selmatchedBoson = ak.mask(matchedBoson, match_mask)
+                genflavor = bosonFlavor(selmatchedBoson)
+            else:
+                genflavor = bosonFlavor(matchedBoson)
             genBosonPt = ak.fill_none(ak.firsts(bosons.pt), 0)
             add_VJets_NLOkFactor(weights, genBosonPt, self._year, dataset)
             weights_wtag = copy.deepcopy(weights)
@@ -399,15 +412,14 @@ class HbbProcessor(processor.ProcessorABC):
             if shift_name is None:
                 output['btagWeight'].fill(dataset=dataset, val=self._btagSF.addBtagWeight(weights, ak4_away))
             if self._nnlops_rew and dataset in ['GluGluHToCC_M125_13TeV_powheg_pythia8']:
-                _rew = np.poly1d(np.array([-5.22406197e-04,  1.04384751]))
-                weights.add('minlo_rew', _rew(ak.to_numpy(genBosonPt)))            
+                weights.add('minlo_rew', powheg_to_nnlops(ak.to_numpy(genBosonPt)))            
             logger.debug("Weight statistics: %r" % weights.weightStatistics)
 
         msd_matched = candidatejet.msdcorr * self._msdSF[self._year] * (genflavor > 0) + candidatejet.msdcorr * (genflavor == 0)
 
         regions = {
-            'signal': ['noleptons', 'minjetkin',  'met', 'jetid', 'antiak4btagMediumOppHem', 'n2ddt', 'trigger'],
-            'signal_noddt': ['noleptons', 'minjetkin',  'met', 'jetid', 'antiak4btagMediumOppHem', 'trigger'],
+            'signal': ['noleptons', 'minjetkin',  'met', 'jetid', 'antiak4btagMediumOppHem', 'n2ddt', 'trigger', 'lumimask'],
+            'signal_noddt': ['noleptons', 'minjetkin',  'met', 'jetid', 'antiak4btagMediumOppHem', 'lumimask', 'trigger'],
             'muoncontrol': ['muontrigger', 'minjetkin', 'jetacceptance', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8'],
             'muoncontrolCC': ['muontrigger', 'minjetkin', 'jetacceptance', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8', 'ddcvbpass'],
             'wtag': ['muontrigger', 'minWjetpteta',  'ak4btagMediumOppHem', 'met40p', 'tightMuon', 'noNearMuon', 'ptrecoW', 'ak4btagNearMu'],
@@ -515,15 +527,22 @@ class HbbProcessor(processor.ProcessorABC):
                     ddc=normalize(cvl, cut),
                     weight=weight_wtag,
                 )
-            if wmod is not None:
+            if not isRealData:
+                if wmod is not None:
+                    _custom_weight = events.genWeight[cut] * wmod[cut]
+                else:
+                    _custom_weight = np.ones_like(weight)
                 output['genresponse_noweight'].fill(
                     dataset=dataset,
                     region=region,
                     systematic=sname,
                     pt=normalize(candidatejet.pt, cut),
                     genpt=normalize(genBosonPt, cut),
-                    weight=events.genWeight[cut] * wmod[cut],
+                    weight=_custom_weight,
                 )
+            
+                print("Fillin", dataset, region, sname)
+                print(np.mean(weight), np.sum(weight), weight[:10])
                 output['genresponse'].fill(
                     dataset=dataset,
                     region=region,
@@ -563,7 +582,7 @@ class HbbProcessor(processor.ProcessorABC):
                 if isRealData and systematic is not None:
                     continue
                 fill(region, systematic)
-            if shift_name is None and 'GluGluHToBB' in dataset and 'LHEWeight' in events.fields:
+            if shift_name is None and 'GluGluH' in dataset and 'LHEWeight' in events.fields:
                 for i in range(9):
                     fill(region, 'LHEScale_%d' % i, events.LHEScaleWeight[:, i])
                 for c in events.LHEWeight.fields[1:]:
