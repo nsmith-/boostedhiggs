@@ -1,17 +1,24 @@
-import os
 import numpy as np
 import awkward as ak
 import gzip
 import pickle
+import cloudpickle
+import importlib.resources
 from coffea.lookup_tools.lookup_base import lookup_base
+from coffea import util
 
-with gzip.open(os.path.join(os.path.dirname(__file__), 'data', 'corrections.pkl.gz')) as fin:
-    compiled = pickle.load(fin)
+with importlib.resources.path("boostedhiggs.data", "corrections.pkl.gz") as path:
+    with gzip.open(path) as fin:
+        compiled = pickle.load(fin)
 
 # hotfix some crazy large weights
 compiled['2017_pileupweight']._values = np.minimum(5, compiled['2017_pileupweight']._values)
 compiled['2018_pileupweight']._values = np.minimum(5, compiled['2018_pileupweight']._values)
 
+# filename = os.path.join(DATA_DIR, 'powhegToMinloPtCC.coffea')
+# compiled['powheg_to_nnlops'] = util.load(filename)
+with importlib.resources.path("boostedhiggs.data", 'powhegToMinloPtCC.coffea') as filename:
+    compiled['powheg_to_nnlops'] = util.load(filename)
 
 class SoftDropWeight(lookup_base):
     def _evaluate(self, pt, eta):
@@ -29,21 +36,19 @@ class SoftDropWeight(lookup_base):
 _softdrop_weight = SoftDropWeight()
 
 
-def corrected_msoftdrop(fatjets, subjets):
+def corrected_msoftdrop(fatjets):
     sf = _softdrop_weight(fatjets.pt, fatjets.eta)
     sf = np.maximum(1e-5, sf)
     dazsle_msd = (fatjets.subjets * (1 - fatjets.subjets.rawFactor)).sum()
     return dazsle_msd.mass * sf
-    # cart = ak.cartesian([fatjets, subjets], nested=True)
-    # idxes = ak.pad_none(ak.argsort(cart['0'].delta_r(cart['1'])), 2, axis=2)
-    # sj1 = subjets[idxes[:,:,0]]
-    # sj2 = subjets[idxes[:,:,1]]
-    # return ((sj1 * (1 - sj1.rawFactor)) + (sj2 * (1 - sj2.rawFactor))).mass * sf
-    
 
 
 def n2ddt_shift(fatjets, year='2017'):
     return compiled[f'{year}_n2ddt_rho_pt'](fatjets.qcdrho, fatjets.pt)
+
+
+def powheg_to_nnlops(genpt):
+    return compiled['powheg_to_nnlops'](genpt)
 
 
 def add_pileup_weight(weights, nPU, year='2017', dataset=None):
@@ -86,3 +91,33 @@ def add_jetTriggerWeight(weights, jet_msd, jet_pt, year):
     up = compiled[f'{year}_trigweight_msd_pt_trigweightUp'](jet_msd, jet_pt)
     down = compiled[f'{year}_trigweight_msd_pt_trigweightDown'](jet_msd, jet_pt)
     weights.add('jet_trigger', nom, up, down)
+
+
+with importlib.resources.path("boostedhiggs.data", "jec_compiled.pkl.gz") as path:
+    with gzip.open(path) as fin:
+        jmestuff = cloudpickle.load(fin)
+
+jet_factory = jmestuff["jet_factory"]
+fatjet_factory = jmestuff["fatjet_factory"]
+met_factory = jmestuff["met_factory"]
+
+
+def add_jec_variables(jets, event_rho):
+    jets["pt_raw"] = (1 - jets.rawFactor)*jets.pt
+    jets["mass_raw"] = (1 - jets.rawFactor)*jets.mass
+    jets["pt_gen"] = ak.values_astype(ak.fill_none(jets.matched_gen.pt, 0), np.float32)
+    jets["event_rho"] = ak.broadcast_arrays(event_rho, jets.pt)[0]
+    return jets
+
+
+def build_lumimask(filename):
+    from coffea.lumi_tools import LumiMask
+    with importlib.resources.path("boostedhiggs.data", filename) as path:
+        return LumiMask(path)
+
+
+lumiMasks = {
+    '2016': build_lumimask('Cert_271036-284044_13TeV_23Sep2016ReReco_Collisions16_JSON.txt'),
+    '2017': build_lumimask('Cert_294927-306462_13TeV_EOY2017ReReco_Collisions17_JSON_v1.txt'),
+    '2018': build_lumimask('Cert_314472-325175_13TeV_17SeptEarlyReReco2018ABC_PromptEraD_Collisions18_JSON.txt'),
+}

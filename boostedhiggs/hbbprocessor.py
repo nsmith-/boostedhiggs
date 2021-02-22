@@ -15,18 +15,32 @@ from boostedhiggs.common import (
 from boostedhiggs.corrections import (
     corrected_msoftdrop,
     n2ddt_shift,
+    powheg_to_nnlops,
     add_pileup_weight,
     add_VJets_NLOkFactor,
     add_jetTriggerWeight,
+    jet_factory,
+    fatjet_factory,
+    add_jec_variables,
+    met_factory,
+    lumiMasks,
 )
 
 
 logger = logging.getLogger(__name__)
 
 
+def update(events, collections):
+    """Return a shallow copy of events array with some collections swapped out"""
+    out = events
+    for name, value in collections.items():
+        out = ak.with_field(out, value, name)
+    return out
+
+
 class HbbProcessor(processor.ProcessorABC):
     def __init__(self, year='2017', jet_arbitration='pt', v2=False, v3=False, v4=False,
-            nnlops_rew=False,
+            nnlops_rew=False,  skipJER=False, tightMatch=False,
         ):
         # v2 DDXv2
         # v3 ParticleNet
@@ -35,8 +49,10 @@ class HbbProcessor(processor.ProcessorABC):
         self._v2 = v2
         self._v3 = v3
         self._v4 = v4
-        self._nnlops_rew = nnlops_rew
+        self._nnlops_rew = nnlops_rew # for 2018, reweight POWHEG to NNLOPS
         self._jet_arbitration = jet_arbitration
+        self._skipJER = skipJER
+        self._tightMatch = tightMatch
 
         self._btagSF = BTagCorrector(year, 'medium')
 
@@ -178,7 +194,9 @@ class HbbProcessor(processor.ProcessorABC):
                 hist.Cat('region', 'Region'),
                 hist.Cat('systematic', 'Systematic'),
                 hist.Bin('pt', r'Jet $p_{T}$ [GeV]', [450, 500, 550, 600, 675, 800, 1200]),
-                hist.Bin('genpt', r'Generated Higgs $p_{T}$ [GeV]', [200, 300, 450, 650, 7500]),
+                # hist.Bin('pt', r'Jet $p_{T}$ [GeV]', np.geomspace(400, 1200, 60)),
+                hist.Bin('genpt', r'Jet $p_{T}$ [GeV]', np.geomspace(400, 1200, 60)),
+                #hist.Bin('genpt', r'Generated Higgs $p_{T}$ [GeV]', [200, 300, 450, 650, 7500]),
             ),
             'genresponse': hist.Hist(
                 'Events',
@@ -186,6 +204,8 @@ class HbbProcessor(processor.ProcessorABC):
                 hist.Cat('region', 'Region'),
                 hist.Cat('systematic', 'Systematic'),
                 hist.Bin('pt', r'Jet $p_{T}$ [GeV]', [450, 500, 550, 600, 675, 800, 1200]),
+                # hist.Bin('genpt', r'Jet $p_{T}$ [GeV]', np.geomspace(400, 1200, 60)),
+                # hist.Bin('pt', r'Jet $p_{T}$ [GeV]', np.geomspace(400, 1200, 60)),
                 hist.Bin('genpt', r'Generated Higgs $p_{T}$ [GeV]', [200, 300, 450, 650, 7500]),
             ),
         })
@@ -197,42 +217,68 @@ class HbbProcessor(processor.ProcessorABC):
     def process(self, events):
         dataset = events.metadata['dataset']
         isRealData = not hasattr(events, "genWeight")
+        output = self.accumulator.identity()
+
+        if isRealData:
+            # Nominal JEC are already applied in data
+            output += self.process_shift(events, None)
+            return output
+
+        jec_cache = {}
+        nojer = "NOJER" if self._skipJER else ""
+        fatjets = fatjet_factory[f"{self._year}mc{nojer}"].build(add_jec_variables(events.FatJet, events.fixedGridRhoFastjetAll), jec_cache)
+        jets = jet_factory[f"{self._year}mc{nojer}"].build(add_jec_variables(events.Jet, events.fixedGridRhoFastjetAll), jec_cache)
+        met = met_factory.build(events.MET, jets, jec_cache)
+
+        output += self.process_shift(update(events, {"Jet": jets, "FatJet": fatjets, "MET": met}), None)
+        output += self.process_shift(update(events, {"Jet": jets.JES_jes.up, "FatJet": fatjets.JES_jes.up, "MET": met.JES_jes.up}), "JESUp")
+        output += self.process_shift(update(events, {"Jet": jets.JES_jes.down, "FatJet": fatjets.JES_jes.down, "MET": met.JES_jes.down}), "JESDown")
+        if not self._skipJER:
+            output += self.process_shift(update(events, {"Jet": jets.JER.up, "FatJet": fatjets.JER.up, "MET": met.JER.up}), "JERUp")
+            output += self.process_shift(update(events, {"Jet": jets.JER.down, "FatJet": fatjets.JER.down, "MET": met.JER.down}), "JERDown")
+        output += self.process_shift(update(events, {"Jet": jets, "FatJet": fatjets, "MET": met.MET_UnclusteredEnergy.up}), "UESUp")
+        output += self.process_shift(update(events, {"Jet": jets, "FatJet": fatjets, "MET": met.MET_UnclusteredEnergy.down}), "UESDown")
+        return output
+
+    def process_shift(self, events, shift_name):
+        dataset = events.metadata['dataset']
+        isRealData = not hasattr(events, "genWeight")
         selection = PackedSelection()
         weights = Weights(len(events))
         weights_wtag = copy.deepcopy(weights)
         output = self.accumulator.identity()
-        if not isRealData:
+        if shift_name is None and not isRealData:
             output['sumw'][dataset] += ak.sum(events.genWeight)
 
         if isRealData:
             trigger = np.zeros(len(events), dtype='bool')
-            lumiMask = LumiMask(self._json_paths[self._year])
-            lumi_mask = lumiMask(events.run, events.luminosityBlock)
+            lumi_mask = lumiMasks[self._year](events.run, events.luminosityBlock)
             for t in self._triggers[self._year]:
                 if t in events.HLT.fields:
                     trigger = trigger | events.HLT[t]
-            trigger = trigger & lumi_mask
             # print(f"Lumipass: {np.sum(lumi_mask)}/{len(lumi_mask)}")
         else:
             trigger = np.ones(len(events), dtype='bool')
+            lumi_mask  = np.ones(len(events), dtype='bool')
         selection.add('trigger', trigger)
+        selection.add('lumimask', lumi_mask)
 
         if isRealData:
             trigger = np.zeros(len(events), dtype='bool')
-            lumiMask = LumiMask(self._json_paths[self._year])
-            lumi_mask = lumiMask(events.run, events.luminosityBlock)
+            lumi_mask = lumiMasks[self._year](events.run, events.luminosityBlock)
             for t in self._muontriggers[self._year]:
                 if t in events.HLT.fields:
                     trigger = trigger | events.HLT[t]
-            trigger = trigger & lumi_mask
             # print(f"Lumipass: {np.sum(lumi_mask)}/{len(lumi_mask)}")
         else:
             trigger = np.ones(len(events), dtype='bool')
+            lumi_mask  = np.ones(len(events), dtype='bool')
         selection.add('muontrigger', trigger)
+        selection.add('lumimask', lumi_mask)
 
-        fatjets = events.FatJet
         
-        fatjets['msdcorr'] = corrected_msoftdrop(fatjets, events.SubJet)
+        fatjets = events.FatJet
+        fatjets['msdcorr'] = corrected_msoftdrop(fatjets)
         fatjets['qcdrho'] = 2 * np.log(fatjets.msdcorr / fatjets.pt)
         fatjets['n2ddt'] = fatjets.n2b1 - n2ddt_shift(fatjets, year=self._year)
         fatjets['msdcorr_full'] = fatjets['msdcorr'] * self._msdSF[self._year]
@@ -282,13 +328,14 @@ class HbbProcessor(processor.ProcessorABC):
             selection.add('ddcvbpass', (candidatejet.btagDDCvB >= 0.2))
         else:
             selection.add('ddbpass', (candidatejet.btagDDBvLV2 >= 0.89))
-            selection.add('ddcpass', (candidatejet.btagDDCvLV2 >= 0.83))
-            selection.add('ddcvbpass', (candidatejet.btagDDCvBV2 >= 0.2))
+            selection.add('ddcpass', (candidatejet.btagDDCvLV2 >= 0.44))
+            selection.add('ddcvbpass', (candidatejet.btagDDCvBV2 >= 0.017))
 
-        jets = events.Jet[
-            (events.Jet.pt > 30.)
-            & (abs(events.Jet.eta) < 2.5)
-            & events.Jet.isTight
+        jets = events.Jet
+        jets = jets[
+            (jets.pt > 30.)
+            & (abs(jets.eta) < 2.5)
+            & jets.isTight
         ]
         # Protect again "empty" arrays [None, None, None...]
         # if ak.sum(candidatejet.phi) == 0.:
@@ -300,7 +347,8 @@ class HbbProcessor(processor.ProcessorABC):
         ak4_away = jets[dphi > 0.8]
         selection.add('ak4btagMedium08', ak.max(ak4_away.btagDeepB, axis=1, mask_identity=False) > BTagEfficiency.btagWPs[self._year]['medium'])
 
-        selection.add('met', events.MET.pt < 140.)
+        met = events.MET
+        selection.add('met', met.pt < 140.)
 
         goodmuon = (
             (events.Muon.pt > 10)
@@ -332,9 +380,9 @@ class HbbProcessor(processor.ProcessorABC):
         # W-Tag
         # tag side
         selection.add('ak4btagMediumOppHem', ak.max(jets[dphi > np.pi / 2].btagDeepB, axis=1, mask_identity=False) > BTagEfficiency.btagWPs[self._year]['medium'])
-        selection.add('met40p', events.MET.pt > 40.) 
+        selection.add('met40p', met.pt > 40.) 
         selection.add('tightMuon', (leadingmuon.tightId) & (leadingmuon.pt > 53.))
-        selection.add('ptrecoW', (leadingmuon + events.MET).pt > 250.)
+        selection.add('ptrecoW', (leadingmuon + met).pt > 250.)
         selection.add('ak4btagNearMu', leadingmuon.delta_r(leadingmuon.nearest(ak4_away, axis=None)) < 2.0 )
         # probe side
         selection.add('minWjetpteta', (candidatejet.pt >= 200) & (abs(candidatejet.eta) < 2.4))
@@ -348,28 +396,31 @@ class HbbProcessor(processor.ProcessorABC):
             add_pileup_weight(weights, events.Pileup.nPU, self._year, dataset)
             bosons = getBosons(events.GenPart)
             matchedBoson = candidatejet.nearest(bosons, axis=None, threshold=0.8)
-            genflavor = bosonFlavor(matchedBoson)
+            if self._tightMatch:
+                match_mask = ((candidatejet.pt - matchedBoson.pt)/matchedBoson.pt < 0.5) & ((candidatejet.msdcorr - matchedBoson.mass)/matchedBoson.mass < 0.3)
+                selmatchedBoson = ak.mask(matchedBoson, match_mask)
+                genflavor = bosonFlavor(selmatchedBoson)
+            else:
+                genflavor = bosonFlavor(matchedBoson)
             genBosonPt = ak.fill_none(ak.firsts(bosons.pt), 0)
             add_VJets_NLOkFactor(weights, genBosonPt, self._year, dataset)
             weights_wtag = copy.deepcopy(weights)
             add_jetTriggerWeight(weights, candidatejet.msdcorr, candidatejet.pt, self._year)
-            output['btagWeight'].fill(dataset=dataset, val=self._btagSF.addBtagWeight(weights, ak4_away))
+            if shift_name is None:
+                output['btagWeight'].fill(dataset=dataset, val=self._btagSF.addBtagWeight(weights, ak4_away))
             if self._nnlops_rew and dataset in ['GluGluHToCC_M125_13TeV_powheg_pythia8']:
-                #_rew = np.poly1d(np.array([-1.00926156e-03,  1.94389194]))
-                _rew = np.poly1d(np.array([-5.22406197e-04,  1.04384751]))
-                weights.add('minlo_rew', _rew(ak.to_numpy(genBosonPt)))
-
+                weights.add('minlo_rew', powheg_to_nnlops(ak.to_numpy(genBosonPt)))            
             logger.debug("Weight statistics: %r" % weights.weightStatistics)
 
         msd_matched = candidatejet.msdcorr * self._msdSF[self._year] * (genflavor > 0) + candidatejet.msdcorr * (genflavor == 0)
 
         regions = {
-            'signal': ['noleptons', 'minjetkin',  'met', 'jetid', 'antiak4btagMediumOppHem', 'n2ddt', 'trigger'],
-            'signal_noddt': ['noleptons', 'minjetkin',  'met', 'jetid', 'antiak4btagMediumOppHem', 'trigger'],
-            'muoncontrol': ['muontrigger', 'minjetkin', 'jetacceptance', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8'],
-            'muoncontrolCC': ['muontrigger', 'minjetkin', 'jetacceptance', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8', 'ddcvbpass'],
+            'signal': ['noleptons', 'minjetkin',  'met', 'jetid', 'antiak4btagMediumOppHem', 'n2ddt', 'trigger', 'lumimask'],
+            'signal_noddt': ['noleptons', 'minjetkin',  'met', 'jetid', 'antiak4btagMediumOppHem', 'trigger', 'lumimask'],
+            # 'muoncontrol': ['muontrigger', 'minjetkin', 'jetacceptance', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8'],
+            # 'muoncontrolCC': ['muontrigger', 'minjetkin', 'jetacceptance', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8', 'ddcvbpass'],
             'wtag': ['muontrigger', 'minWjetpteta',  'ak4btagMediumOppHem', 'met40p', 'tightMuon', 'noNearMuon', 'ptrecoW', 'ak4btagNearMu'],
-            'wtag0': ['minWjetpteta',  'ak4btagMediumOppHem', 'met40p', 'tightMuon', 'noNearMuon', 'ptrecoW', 'ak4btagNearMu'],
+            # 'wtag0': ['minWjetpteta',  'ak4btagMediumOppHem', 'met40p', 'tightMuon', 'noNearMuon', 'ptrecoW', 'ak4btagNearMu'],
             'noselection': [],
         }
 
@@ -381,43 +432,50 @@ class HbbProcessor(processor.ProcessorABC):
                 ar = ak.to_numpy(ak.fill_none(val[cut], np.nan))
                 return ar
 
-        for region, cuts in regions.items():
-            # allcuts = set(["id"])
-            allcuts = set([])
-            cut = selection.all(*allcuts)
-            output['cutflow_msd'].fill(dataset=dataset, region=region, genflavor=normalize(genflavor, None),
-                                   cut=0, weight=weights.weight(), msd=normalize(msd_matched, None))
-            output['cutflow_eta'].fill(dataset=dataset, region=region, genflavor=normalize(genflavor, cut),
-                                   cut=0, weight=weights.weight()[cut], eta=normalize(candidatejet.eta, cut))
-            output['cutflow_pt'].fill(dataset=dataset, region=region, genflavor=normalize(genflavor, cut),
-                                   cut=0, weight=weights.weight()[cut], pt=normalize(candidatejet.pt, cut))
-            for i, cut in enumerate(cuts + ['ddcvbpass', 'ddcpass']):
-                allcuts.add(cut)
+        if shift_name is None:
+            for region, cuts in regions.items():
+                # allcuts = set(["id"])
+                allcuts = set([])
                 cut = selection.all(*allcuts)
-                output['cutflow_msd'].fill(dataset=dataset, region=region, genflavor=normalize(genflavor, cut),
-                                       cut=i + 1, weight=weights.weight()[cut], msd=normalize(msd_matched, cut))
+                output['cutflow_msd'].fill(dataset=dataset, region=region, genflavor=normalize(genflavor, None),
+                                    cut=0, weight=weights.weight(), msd=normalize(msd_matched, None))
                 output['cutflow_eta'].fill(dataset=dataset, region=region, genflavor=normalize(genflavor, cut),
-                        cut=i + 1, weight=weights.weight()[cut], eta=normalize(candidatejet.eta, cut))
+                                    cut=0, weight=weights.weight()[cut], eta=normalize(candidatejet.eta, cut))
                 output['cutflow_pt'].fill(dataset=dataset, region=region, genflavor=normalize(genflavor, cut),
-                        cut=i + 1, weight=weights.weight()[cut], pt=normalize(candidatejet.pt, cut))
+                                    cut=0, weight=weights.weight()[cut], pt=normalize(candidatejet.pt, cut))
+                for i, cut in enumerate(cuts + ['ddcvbpass', 'ddcpass']):
+                    allcuts.add(cut)
+                    cut = selection.all(*allcuts)
+                    output['cutflow_msd'].fill(dataset=dataset, region=region, genflavor=normalize(genflavor, cut),
+                                        cut=i + 1, weight=weights.weight()[cut], msd=normalize(msd_matched, cut))
+                    output['cutflow_eta'].fill(dataset=dataset, region=region, genflavor=normalize(genflavor, cut),
+                            cut=i + 1, weight=weights.weight()[cut], eta=normalize(candidatejet.eta, cut))
+                    output['cutflow_pt'].fill(dataset=dataset, region=region, genflavor=normalize(genflavor, cut),
+                            cut=i + 1, weight=weights.weight()[cut], pt=normalize(candidatejet.pt, cut))
 
 
-        systematics = [
-            None,
-            'jet_triggerUp',
-            'jet_triggerDown',
-            'btagWeightUp',
-            'btagWeightDown',
-            'btagEffStatUp',
-            'btagEffStatDown',
-        ]
+        if shift_name is None:
+            systematics = [
+                None,
+                'jet_triggerUp',
+                'jet_triggerDown',
+                'btagWeightUp',
+                'btagWeightDown',
+                'btagEffStatUp',
+                'btagEffStatDown',
+            ]
+        else:
+            systematics = [shift_name]
 
         def fill(region, systematic, wmod=None):
             selections = regions[region]
             cut = selection.all(*selections)
             sname = 'nominal' if systematic is None else systematic
             if wmod is None:
-                weight = weights.weight(modifier=systematic)[cut]
+                if systematic in weights.variations:
+                    weight = weights.weight(modifier=systematic)[cut]
+                else:
+                    weight = weights.weight()[cut]
             else:
                 weight = weights.weight()[cut] * wmod[cut]
             if systematic is None:
@@ -466,15 +524,20 @@ class HbbProcessor(processor.ProcessorABC):
                     ddc=normalize(cvl, cut),
                     weight=weight_wtag,
                 )
-            if wmod is not None:
+            if not isRealData:
+                if wmod is not None:
+                    _custom_weight = events.genWeight[cut] * wmod[cut]
+                else:
+                    _custom_weight = np.ones_like(weight)
                 output['genresponse_noweight'].fill(
                     dataset=dataset,
                     region=region,
                     systematic=sname,
                     pt=normalize(candidatejet.pt, cut),
                     genpt=normalize(genBosonPt, cut),
-                    weight=events.genWeight[cut] * wmod[cut],
+                    weight=_custom_weight,
                 )
+            
                 output['genresponse'].fill(
                     dataset=dataset,
                     region=region,
@@ -503,23 +566,25 @@ class HbbProcessor(processor.ProcessorABC):
 
         for region in regions:
             cut = selection.all(*(set(regions[region]) - {'n2ddt'}))
-            output['nminus1_n2ddt'].fill(
-                dataset=dataset,
-                region=region,
-                n2ddt=normalize(candidatejet.n2ddt, cut),
-                weight=weights.weight()[cut],
-            )
+            if shift_name is None:
+                output['nminus1_n2ddt'].fill(
+                    dataset=dataset,
+                    region=region,
+                    n2ddt=normalize(candidatejet.n2ddt, cut),
+                    weight=weights.weight()[cut],
+                )
             for systematic in systematics:
                 if isRealData and systematic is not None:
                     continue
                 fill(region, systematic)
-            if 'GluGluHToBB' in dataset and 'LHEWeight' in events.fields:
+            if shift_name is None and 'GluGluH' in dataset and 'LHEWeight' in events.fields:
                 for i in range(9):
                     fill(region, 'LHEScale_%d' % i, events.LHEScaleWeight[:, i])
                 for c in events.LHEWeight.fields[1:]:
                     fill(region, 'LHEWeight_%s' % c, events.LHEWeight[c])
 
-        output["weightStats"] = weights.weightStatistics
+        if shift_name is None:
+            output["weightStats"] = weights.weightStatistics
         return output
 
     def postprocess(self, accumulator):
