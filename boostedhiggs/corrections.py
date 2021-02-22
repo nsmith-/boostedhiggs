@@ -15,8 +15,10 @@ with importlib.resources.path("boostedhiggs.data", "corrections.pkl.gz") as path
 compiled['2017_pileupweight']._values = np.minimum(5, compiled['2017_pileupweight']._values)
 compiled['2018_pileupweight']._values = np.minimum(5, compiled['2018_pileupweight']._values)
 
-filename = os.path.join(DATA_DIR, 'powhegToMinloPtCC.coffea')
-compiled['powheg_to_nnlops'] = util.load(filename)
+# filename = os.path.join(DATA_DIR, 'powhegToMinloPtCC.coffea')
+# compiled['powheg_to_nnlops'] = util.load(filename)
+with importlib.resources.path("boostedhiggs.data", 'powhegToMinloPtCC.coffea') as filename:
+    compiled['powheg_to_nnlops'] = util.load(filename)
 
 class SoftDropWeight(lookup_base):
     def _evaluate(self, pt, eta):
