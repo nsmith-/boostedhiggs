@@ -419,11 +419,11 @@ class HbbProcessor(processor.ProcessorABC):
 
         regions = {
             'signal': ['noleptons', 'minjetkin',  'met', 'jetid', 'antiak4btagMediumOppHem', 'n2ddt', 'trigger', 'lumimask'],
-            'signal_noddt': ['noleptons', 'minjetkin',  'met', 'jetid', 'antiak4btagMediumOppHem', 'lumimask', 'trigger'],
-            'muoncontrol': ['muontrigger', 'minjetkin', 'jetacceptance', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8'],
-            'muoncontrolCC': ['muontrigger', 'minjetkin', 'jetacceptance', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8', 'ddcvbpass'],
+            'signal_noddt': ['noleptons', 'minjetkin',  'met', 'jetid', 'antiak4btagMediumOppHem', 'trigger', 'lumimask'],
+            # 'muoncontrol': ['muontrigger', 'minjetkin', 'jetacceptance', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8'],
+            # 'muoncontrolCC': ['muontrigger', 'minjetkin', 'jetacceptance', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8', 'ddcvbpass'],
             'wtag': ['muontrigger', 'minWjetpteta',  'ak4btagMediumOppHem', 'met40p', 'tightMuon', 'noNearMuon', 'ptrecoW', 'ak4btagNearMu'],
-            'wtag0': ['minWjetpteta',  'ak4btagMediumOppHem', 'met40p', 'tightMuon', 'noNearMuon', 'ptrecoW', 'ak4btagNearMu'],
+            # 'wtag0': ['minWjetpteta',  'ak4btagMediumOppHem', 'met40p', 'tightMuon', 'noNearMuon', 'ptrecoW', 'ak4btagNearMu'],
             'noselection': [],
         }
 
@@ -541,8 +541,6 @@ class HbbProcessor(processor.ProcessorABC):
                     weight=_custom_weight,
                 )
             
-                print("Fillin", dataset, region, sname)
-                print(np.mean(weight), np.sum(weight), weight[:10])
                 output['genresponse'].fill(
                     dataset=dataset,
                     region=region,
