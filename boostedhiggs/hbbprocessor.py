@@ -156,7 +156,7 @@ class HbbProcessor(processor.ProcessorABC):
                 hist.Bin('genflavor', 'Gen. jet flavor', [0, 1, 2, 3, 4]),
                 hist.Bin('pt', r'Jet $p_{T}$ [GeV]', [450, 500, 550, 600, 675, 800, 1200]),
                 hist.Bin('msd', r'Jet $m_{sd}$', 23, 40, 201),
-                hist.Bin('ddb', r'Jet ddb score', [0, 0.89, 1]),
+                hist.Bin('ddb', r'Jet ddb score', [0, 0.7, 0.89, 1]),
                 hist.Bin('ddc', r'Jet ddc score', [0, 0.1, 0.44, .83, 1]),
                 hist.Bin('ddcvb', r'Jet ddcvb score', [0, 0.017, 0.2, 1]),
             ),
@@ -165,15 +165,18 @@ class HbbProcessor(processor.ProcessorABC):
                 hist.Cat('dataset', 'Dataset'),
                 hist.Cat('region', 'Region'),
                 hist.Bin('genflavor', 'Gen. jet flavor', [0, 1, 2, 3, 4]),
-                hist.Bin('ddc', r'Jet ddc score', np.r_[0, np.geomspace(0.0001, 1, 101)]) if self._v2 else hist.Bin('ddc', r'Jet ddc score', 100, 0, 1), 
-                hist.Bin('ddcvb', r'Jet ddcvb score',np.r_[0, np.geomspace(0.0001, 1, 101)]) if self._v2 else hist.Bin('ddcvb', r'Jet ddc score', 100, 0, 1), 
+                # hist.Bin('ddc', r'Jet CvL score', np.r_[0, np.geomspace(0.01, 1, 101)]) if self._v2 else hist.Bin('ddc', r'Jet CvL score', 100, 0, 1), 
+                # hist.Bin('ddcvb', r'Jet CvB score',np.r_[0, np.geomspace(0.01, 1, 101)]) if self._v2 else hist.Bin('ddcvb', r'Jet CvB score', 100, 0, 1), 
+                hist.Bin('ddc', r'Jet CvL score', np.r_[np.linspace(0, 0.15, 31), np.linspace(0.15, 1, 86)]), 
+                hist.Bin('ddcvb', r'Jet CvB score', np.r_[np.linspace(0, 0.15, 31), np.linspace(0.15, 1, 86)]),
             ),
             'signal_optb': hist.Hist(
                 'Events',
                 hist.Cat('dataset', 'Dataset'),
                 hist.Cat('region', 'Region'),
                 hist.Bin('genflavor', 'Gen. jet flavor', [0, 1, 2, 3, 4]),
-                hist.Bin('ddb', r'Jet ddb score', np.r_[0, np.geomspace(0.0001, 1, 101)]) if self._v2 else hist.Bin('ddb', r'Jet ddc score', 100, 0, 1), 
+                # hist.Bin('ddb', r'Jet BvL score', np.r_[0, np.geomspace(0.0001, 1, 101)]) if self._v2 else hist.Bin('ddb', r'Jet BvL score', 100, 0, 1), 
+                hist.Bin('ddb', r'Jet BvL score', np.r_[np.linspace(0, 0.15, 31), np.linspace(0.15, 1, 86)]),
             ),
             'wtag_opt': hist.Hist(
                 'Events',
@@ -181,10 +184,9 @@ class HbbProcessor(processor.ProcessorABC):
                 hist.Cat('region', 'Region'),
                 hist.Cat('systematic', 'Systematic'),
                 hist.Bin('genflavor', 'Gen. jet flavor', [0, 1, 2, 3, 4]), #
-                hist.Bin('pt', r'Jet $p_{T}$ [GeV]', [200, 450, 675, 1200]),
                 hist.Bin('msd', r'Jet $m_{sd}$', 46, 40, 201),
-                #hist.Bin('msd', r'Jet $m_{sd}$', 30, 40, 201),
-                hist.Bin('n2ddt', 'N2ddt value', 10, -0.5, 0.5),
+                hist.Bin('n2ddt', 'N2ddt value', [-1, 0, 1]),
+                hist.Bin('ddb', r'Jet ddb score', [0, 0.7, 0.89, 1]),
                 hist.Bin('ddcvb', r'Jet ddcvb score', [0, 0.017, 0.2, 1]),
                 hist.Bin('ddc', r'Jet ddc score', [0, 0.1, 0.44, .83, 1]),
             ),
@@ -194,9 +196,7 @@ class HbbProcessor(processor.ProcessorABC):
                 hist.Cat('region', 'Region'),
                 hist.Cat('systematic', 'Systematic'),
                 hist.Bin('pt', r'Jet $p_{T}$ [GeV]', [450, 500, 550, 600, 675, 800, 1200]),
-                # hist.Bin('pt', r'Jet $p_{T}$ [GeV]', np.geomspace(400, 1200, 60)),
                 hist.Bin('genpt', r'Jet $p_{T}$ [GeV]', np.geomspace(400, 1200, 60)),
-                #hist.Bin('genpt', r'Generated Higgs $p_{T}$ [GeV]', [200, 300, 450, 650, 7500]),
             ),
             'genresponse': hist.Hist(
                 'Events',
@@ -204,8 +204,6 @@ class HbbProcessor(processor.ProcessorABC):
                 hist.Cat('region', 'Region'),
                 hist.Cat('systematic', 'Systematic'),
                 hist.Bin('pt', r'Jet $p_{T}$ [GeV]', [450, 500, 550, 600, 675, 800, 1200]),
-                # hist.Bin('genpt', r'Jet $p_{T}$ [GeV]', np.geomspace(400, 1200, 60)),
-                # hist.Bin('pt', r'Jet $p_{T}$ [GeV]', np.geomspace(400, 1200, 60)),
                 hist.Bin('genpt', r'Generated Higgs $p_{T}$ [GeV]', [200, 300, 450, 650, 7500]),
             ),
         })
@@ -305,6 +303,23 @@ class HbbProcessor(processor.ProcessorABC):
             ]
         else:
             raise RuntimeError("Unknown candidate jet arbitration")
+
+        if self._v2:
+            bvl = candidatejet.btagDDBvLV2
+            cvl = candidatejet.btagDDCvLV2
+            cvb = candidatejet.btagDDCvBV2
+        elif self._v3:
+            bvl = candidatejet.particleNet_HbbvsQCD
+            cvl = candidatejet.particleNet_HccvsQCD
+            cvb = candidatejet.particleNetMD_Xcc/(candidatejet.particleNetMD_Xcc + candidatejet.particleNetMD_Xbb)
+        elif self._v4:
+            bvl = candidatejet.particleNet_HbbvsQCD
+            cvl = candidatejet.btagDDCvLV2
+            cvb = candidatejet.particleNetMD_Xcc/(candidatejet.particleNetMD_Xcc + candidatejet.particleNetMD_Xbb)
+        else:
+            bvl = candidatejet.btagDDBvL
+            cvl = candidatejet.btagDDCvL
+            cvb = candidatejet.btagDDCvB
     
 
         selection.add('minjetkin',
@@ -323,13 +338,13 @@ class HbbProcessor(processor.ProcessorABC):
         selection.add('jetid', candidatejet.isTight)
         selection.add('n2ddt', (candidatejet.n2ddt < 0.))
         if not self._v2:
-            selection.add('ddbpass', (candidatejet.btagDDBvL >= 0.89))
-            selection.add('ddcpass', (candidatejet.btagDDCvL >= 0.83))
-            selection.add('ddcvbpass', (candidatejet.btagDDCvB >= 0.2))
+            selection.add('ddbpass', (bvl >= 0.89))
+            selection.add('ddcpass', (cvl >= 0.83))
+            selection.add('ddcvbpass', (cvb >= 0.2))
         else:
-            selection.add('ddbpass', (candidatejet.btagDDBvLV2 >= 0.89))
-            selection.add('ddcpass', (candidatejet.btagDDCvLV2 >= 0.44))
-            selection.add('ddcvbpass', (candidatejet.btagDDCvBV2 >= 0.017))
+            selection.add('ddbpass', (bvl >= 0.7))
+            selection.add('ddcpass', (cvl >= 0.44))
+            selection.add('ddcvbpass', (cvb >= 0.017))
 
         jets = events.Jet
         jets = jets[
@@ -417,10 +432,8 @@ class HbbProcessor(processor.ProcessorABC):
         regions = {
             'signal': ['noleptons', 'minjetkin',  'met', 'jetid', 'antiak4btagMediumOppHem', 'n2ddt', 'trigger', 'lumimask'],
             'signal_noddt': ['noleptons', 'minjetkin',  'met', 'jetid', 'antiak4btagMediumOppHem', 'trigger', 'lumimask'],
-            # 'muoncontrol': ['muontrigger', 'minjetkin', 'jetacceptance', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8'],
-            # 'muoncontrolCC': ['muontrigger', 'minjetkin', 'jetacceptance', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8', 'ddcvbpass'],
+            'muoncontrol': ['muontrigger', 'minjetkin', 'jetacceptance', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8'],
             'wtag': ['muontrigger', 'minWjetpteta',  'ak4btagMediumOppHem', 'met40p', 'tightMuon', 'noNearMuon', 'ptrecoW', 'ak4btagNearMu'],
-            # 'wtag0': ['minWjetpteta',  'ak4btagMediumOppHem', 'met40p', 'tightMuon', 'noNearMuon', 'ptrecoW', 'ak4btagNearMu'],
             'noselection': [],
         }
 
@@ -481,23 +494,6 @@ class HbbProcessor(processor.ProcessorABC):
             if systematic is None:
                 weight_wtag = weights_wtag.weight(modifier=systematic)[cut]
             
-            
-            if self._v2:
-                bvl = candidatejet.btagDDBvLV2
-                cvl = candidatejet.btagDDCvLV2
-                cvb = candidatejet.btagDDCvBV2
-            elif self._v3:
-                bvl = candidatejet.particleNet_HbbvsQCD
-                cvl = candidatejet.particleNet_HccvsQCD
-                cvb = candidatejet.particleNetMD_Xcc/(candidatejet.particleNetMD_Xcc + candidatejet.particleNetMD_Xbb)
-            elif self._v4:
-                bvl = candidatejet.particleNet_HbbvsQCD
-                cvl = candidatejet.btagDDCvLV2
-                cvb = candidatejet.particleNetMD_Xcc/(candidatejet.particleNetMD_Xcc + candidatejet.particleNetMD_Xbb)
-            else:
-                bvl = candidatejet.btagDDBvL
-                cvl = candidatejet.btagDDCvL
-                cvb = candidatejet.btagDDCvB
 
             output['templates'].fill(
                 dataset=dataset,
@@ -520,6 +516,7 @@ class HbbProcessor(processor.ProcessorABC):
                     pt=normalize(candidatejet.pt, cut),
                     msd=normalize(msd_matched, cut),
                     n2ddt=normalize(candidatejet.n2ddt, cut),
+                    ddb=normalize(bvl, cut),
                     ddcvb=normalize(cvb, cut),
                     ddc=normalize(cvl, cut),
                     weight=weight_wtag,
