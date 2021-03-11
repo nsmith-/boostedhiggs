@@ -178,18 +178,6 @@ class HbbProcessor(processor.ProcessorABC):
                 # hist.Bin('ddb', r'Jet BvL score', np.r_[0, np.geomspace(0.0001, 1, 101)]) if self._v2 else hist.Bin('ddb', r'Jet BvL score', 100, 0, 1), 
                 hist.Bin('ddb', r'Jet BvL score', np.r_[np.linspace(0, 0.15, 31), np.linspace(0.15, 1, 86)]),
             ),
-            'wtag_opt': hist.Hist(
-                'Events',
-                hist.Cat('dataset', 'Dataset'),
-                hist.Cat('region', 'Region'),
-                hist.Cat('systematic', 'Systematic'),
-                hist.Bin('genflavor', 'Gen. jet flavor', [0, 1, 2, 3, 4]), #
-                hist.Bin('msd', r'Jet $m_{sd}$', 46, 40, 201),
-                hist.Bin('n2ddt', 'N2ddt value', [-1, 0, 1]),
-                hist.Bin('ddb', r'Jet ddb score', [0, 0.7, 0.89, 1]),
-                hist.Bin('ddcvb', r'Jet ddcvb score', [0, 0.017, 0.2, 1]),
-                hist.Bin('ddc', r'Jet ddc score', [0, 0.1, 0.44, .83, 1]),
-            ),
             'genresponse_noweight': hist.Hist(
                 'Events',
                 hist.Cat('dataset', 'Dataset'),
@@ -514,20 +502,6 @@ class HbbProcessor(processor.ProcessorABC):
                 ddcvb=normalize(cvb, cut),
                 weight=weight,
             )
-            if systematic is None:
-                output['wtag_opt'].fill(
-                    dataset=dataset,
-                    region=region,
-                    systematic=sname,
-                    genflavor=normalize(genflavor, cut),
-                    pt=normalize(candidatejet.pt, cut),
-                    msd=normalize(msd_matched, cut),
-                    n2ddt=normalize(candidatejet.n2ddt, cut),
-                    ddb=normalize(bvl, cut),
-                    ddcvb=normalize(cvb, cut),
-                    ddc=normalize(cvl, cut),
-                    weight=weight_wtag,
-                )
             if not isRealData:
                 if wmod is not None:
                     _custom_weight = events.genWeight[cut] * wmod[cut]
