@@ -1,6 +1,12 @@
-binder/data/*
 __pycache__
 *.pyc
 .ipynb_checkpoints
 .eggs
 *.egg-info
+.ipython
+.env
+.Trash*
+shell
+.bashrc
+.local
+**dask-worker-space
