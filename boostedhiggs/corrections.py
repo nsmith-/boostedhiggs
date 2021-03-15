@@ -5,6 +5,7 @@ import pickle
 import cloudpickle
 import importlib.resources
 from coffea.lookup_tools.lookup_base import lookup_base
+from coffea import lookup_tools
 from coffea import util
 
 with importlib.resources.path("boostedhiggs.data", "corrections.pkl.gz") as path:
@@ -90,6 +91,19 @@ def add_jetTriggerWeight(weights, jet_msd, jet_pt, year):
     nom = compiled[f'{year}_trigweight_msd_pt'](jet_msd, jet_pt)
     up = compiled[f'{year}_trigweight_msd_pt_trigweightUp'](jet_msd, jet_pt)
     down = compiled[f'{year}_trigweight_msd_pt_trigweightDown'](jet_msd, jet_pt)
+    weights.add('jet_trigger', nom, up, down)
+
+
+with importlib.resources.path("boostedhiggs.data", 'new_jettrigger_sf.coffea') as filename:
+    trigmaps17 = util.load(filename)
+for key in trigmaps17.keys():
+    compiled[key] = trigmaps17[key]
+
+
+def add_jetTriggerWeight17mod(weights, jet_msd, jet_pt, year):
+    nom = compiled[f'{year}_jettrigger'](jet_pt, jet_msd)
+    up = compiled[f'{year}_jettrigger_up'](jet_pt, jet_msd)
+    down = compiled[f'{year}_jettrigger_down'](jet_pt, jet_msd)
     weights.add('jet_trigger', nom, up, down)
 
 
