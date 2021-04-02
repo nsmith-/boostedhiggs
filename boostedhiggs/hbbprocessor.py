@@ -3,6 +3,7 @@ import numpy as np
 import awkward as ak
 import json
 import copy
+from collections import defaultdict
 from coffea import processor, hist
 from coffea.analysis_tools import Weights, PackedSelection
 from coffea.lumi_tools import LumiMask
@@ -114,9 +115,9 @@ class HbbProcessor(processor.ProcessorABC):
             '2018': 'jsons/Cert_314472-325175_13TeV_17SeptEarlyReReco2018ABC_PromptEraD_Collisions18_JSON.txt',
         }
 
-        self._accumulator = processor.dict_accumulator({
+        self.make_output = lambda: {
             # dataset -> sumw
-            'sumw': processor.defaultdict_accumulator(float),
+            'sumw': defaultdict(float),
             'cutflow_msd': hist.Hist(
                 'Events',
                 hist.Cat('dataset', 'Dataset'),
@@ -194,21 +195,15 @@ class HbbProcessor(processor.ProcessorABC):
                 hist.Bin('pt', r'Jet $p_{T}$ [GeV]', [450, 500, 550, 600, 675, 800, 1200]),
                 hist.Bin('genpt', r'Generated Higgs $p_{T}$ [GeV]', [200, 300, 450, 650, 7500]),
             ),
-        })
-
-    @property
-    def accumulator(self):
-        return self._accumulator
+        }
 
     def process(self, events):
         dataset = events.metadata['dataset']
         isRealData = not hasattr(events, "genWeight")
-        output = self.accumulator.identity()
 
         if isRealData:
             # Nominal JEC are already applied in data
-            output += self.process_shift(events, None)
-            return output
+            return self.process_shift(events, None)
 
         jec_cache = {}
         nojer = "NOJER" if self._skipJER else ""
@@ -216,15 +211,19 @@ class HbbProcessor(processor.ProcessorABC):
         jets = jet_factory[f"{self._year}mc{nojer}"].build(add_jec_variables(events.Jet, events.fixedGridRhoFastjetAll), jec_cache)
         met = met_factory.build(events.MET, jets, jec_cache)
 
-        output += self.process_shift(update(events, {"Jet": jets, "FatJet": fatjets, "MET": met}), None)
-        output += self.process_shift(update(events, {"Jet": jets.JES_jes.up, "FatJet": fatjets.JES_jes.up, "MET": met.JES_jes.up}), "JESUp")
-        output += self.process_shift(update(events, {"Jet": jets.JES_jes.down, "FatJet": fatjets.JES_jes.down, "MET": met.JES_jes.down}), "JESDown")
+        shifts = [
+            ({"Jet": jets, "FatJet": fatjets, "MET": met}, None),
+            ({"Jet": jets.JES_jes.up, "FatJet": fatjets.JES_jes.up, "MET": met.JES_jes.up}, "JESUp"),
+            ({"Jet": jets.JES_jes.down, "FatJet": fatjets.JES_jes.down, "MET": met.JES_jes.down}, "JESDown"),
+            ({"Jet": jets, "FatJet": fatjets, "MET": met.MET_UnclusteredEnergy.up}, "UESUp"),
+            ({"Jet": jets, "FatJet": fatjets, "MET": met.MET_UnclusteredEnergy.down}, "UESDown"),
+        ]
         if not self._skipJER:
-            output += self.process_shift(update(events, {"Jet": jets.JER.up, "FatJet": fatjets.JER.up, "MET": met.JER.up}), "JERUp")
-            output += self.process_shift(update(events, {"Jet": jets.JER.down, "FatJet": fatjets.JER.down, "MET": met.JER.down}), "JERDown")
-        output += self.process_shift(update(events, {"Jet": jets, "FatJet": fatjets, "MET": met.MET_UnclusteredEnergy.up}), "UESUp")
-        output += self.process_shift(update(events, {"Jet": jets, "FatJet": fatjets, "MET": met.MET_UnclusteredEnergy.down}), "UESDown")
-        return output
+            shifts.extend([
+                ({"Jet": jets.JER.up, "FatJet": fatjets.JER.up, "MET": met.JER.up}, "JERUp"),
+                ({"Jet": jets.JER.down, "FatJet": fatjets.JER.down, "MET": met.JER.down}, "JERDown"),
+            ])
+        return processor.accumulate(self.process_shift(update(events, collections), name) for collections, name in shifts)
 
     def process_shift(self, events, shift_name):
         dataset = events.metadata['dataset']
@@ -232,7 +231,7 @@ class HbbProcessor(processor.ProcessorABC):
         selection = PackedSelection()
         weights = Weights(len(events))
         weights_wtag = copy.deepcopy(weights)
-        output = self.accumulator.identity()
+        output = self.make_output()
         if shift_name is None and not isRealData:
             output['sumw'][dataset] += ak.sum(events.genWeight)
 
@@ -340,9 +339,6 @@ class HbbProcessor(processor.ProcessorABC):
             & (abs(jets.eta) < 2.5)
             & jets.isTight
         ]
-        # Protect again "empty" arrays [None, None, None...]
-        # if ak.sum(candidatejet.phi) == 0.:
-        #     return self.accumulator.identity()
         # only consider first 4 jets to be consistent with old framework
         jets = jets[:, :4]
         dphi = abs(jets.delta_phi(candidatejet))
