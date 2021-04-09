@@ -5,6 +5,7 @@ import json
 import copy
 from collections import defaultdict
 from coffea import processor, hist
+import hist as hist2
 from coffea.analysis_tools import Weights, PackedSelection
 from coffea.lumi_tools import LumiMask
 from boostedhiggs.btag import BTagEfficiency, BTagCorrector
@@ -115,85 +116,87 @@ class HbbProcessor(processor.ProcessorABC):
             '2018': 'jsons/Cert_314472-325175_13TeV_17SeptEarlyReReco2018ABC_PromptEraD_Collisions18_JSON.txt',
         }
 
+        optbins = np.r_[np.linspace(0, 0.15, 30, endpoint=False), np.linspace(0.15, 1, 86)]
         self.make_output = lambda: {
             # dataset -> sumw
             'sumw': defaultdict(float),
-            'cutflow_msd': hist.Hist(
-                'Events',
-                hist.Cat('dataset', 'Dataset'),
-                hist.Cat('region', 'Region'),
-                hist.Bin('genflavor', 'Gen. jet flavor', [0, 1, 2, 3, 4]),
-                hist.Bin('cut', 'Cut index', 11, 0, 11),
-                hist.Bin('msd', r'Jet $m_{sd}$', 23, 40, 201),
+            'cutflow_msd': hist2.Hist(
+                hist2.axis.StrCategory([], name='dataset', growth=True),
+                hist2.axis.StrCategory([], name='region', growth=True),
+                hist2.axis.IntCategory([0, 1, 2, 3], name='genflavor'),
+                hist2.axis.IntCategory(range(11), name='cut', label='Cut index'),
+                hist2.axis.Regular(23, 40, 201, name='msd', label=r'Jet $m_{sd}$'),
+                hist2.storage.Weight(),
             ),
-            'cutflow_eta': hist.Hist(
-                'Events',
-                hist.Cat('dataset', 'Dataset'),
-                hist.Cat('region', 'Region'),
-                hist.Bin('genflavor', 'Gen. jet flavor', [0, 1, 2, 3, 4]),
-                hist.Bin('cut', 'Cut index', 11, 0, 11),
-                hist.Bin('eta', r'Jet $\eta$', 40, -2.5, 2.5),
+            'cutflow_eta': hist2.Hist(
+                hist2.axis.StrCategory([], name='dataset', growth=True),
+                hist2.axis.StrCategory([], name='region', growth=True),
+                hist2.axis.IntCategory([0, 1, 2, 3], name='genflavor'),
+                hist2.axis.IntCategory(range(11), name='cut', label='Cut index'),
+                hist2.axis.Regular(40, -2.5, 2.5, name='eta', label=r'Jet $\eta$'),
+                hist2.storage.Weight(),
             ),
-            'cutflow_pt': hist.Hist(
-                'Events',
-                hist.Cat('dataset', 'Dataset'),
-                hist.Cat('region', 'Region'),
-                hist.Bin('genflavor', 'Gen. jet flavor', [0, 1, 2, 3, 4]),
-                hist.Bin('cut', 'Cut index', 11, 0, 11),
-                hist.Bin('pt', r'Jet $p_{T}$ [GeV]', 100, 400, 1200),
+            'cutflow_pt': hist2.Hist(
+                hist2.axis.StrCategory([], name='dataset', growth=True),
+                hist2.axis.StrCategory([], name='region', growth=True),
+                hist2.axis.IntCategory([0, 1, 2, 3], name='genflavor'),
+                hist2.axis.IntCategory(range(11), name='cut', label='Cut index'),
+                hist2.axis.Regular(100, 400, 1200, name='pt', label=r'Jet $p_{T}$ [GeV]'),
+                hist2.storage.Weight(),
             ),
-            'nminus1_n2ddt': hist.Hist(
-                'Events',
-                hist.Cat('dataset', 'Dataset'),
-                hist.Cat('region', 'Region'),
-                hist.Bin('n2ddt', 'N2ddt value', 40, -0.25, 0.25),
+            'nminus1_n2ddt': hist2.Hist(
+                hist2.axis.StrCategory([], name='dataset', growth=True),
+                hist2.axis.StrCategory([], name='region', growth=True),
+                hist2.axis.Regular(40, -0.25, 0.25, name='n2ddt', label='N2ddt value'),
+                hist2.storage.Weight(),
             ),
-            'btagWeight': hist.Hist('Events', hist.Cat('dataset', 'Dataset'), hist.Bin('val', 'BTag correction', 50, 0, 3)),
-            'templates': hist.Hist(
-                'Events',
-                hist.Cat('dataset', 'Dataset'),
-                hist.Cat('region', 'Region'),
-                hist.Cat('systematic', 'Systematic'),
-                hist.Bin('genflavor', 'Gen. jet flavor', [0, 1, 2, 3, 4]),
-                hist.Bin('pt', r'Jet $p_{T}$ [GeV]', [450, 500, 550, 600, 675, 800, 1200]),
-                hist.Bin('msd', r'Jet $m_{sd}$', 23, 40, 201),
-                hist.Bin('ddb', r'Jet ddb score', [0, 0.7, 0.89, 1]),
-                hist.Bin('ddc', r'Jet ddc score', [0, 0.1, 0.44, .83, 1]),
-                hist.Bin('ddcvb', r'Jet ddcvb score', [0, 0.017, 0.2, 1]),
+            'btagWeight': hist2.Hist(
+                hist2.axis.StrCategory([], name='dataset', growth=True),
+                hist2.axis.Regular(50, 0, 3, name='val', label='BTag correction'),
+                hist2.storage.Weight(),
             ),
-            'signal_opt': hist.Hist(
-                'Events',
-                hist.Cat('dataset', 'Dataset'),
-                hist.Cat('region', 'Region'),
-                hist.Bin('genflavor', 'Gen. jet flavor', [0, 1, 2, 3, 4]),
-                # hist.Bin('ddc', r'Jet CvL score', np.r_[0, np.geomspace(0.01, 1, 101)]) if self._v2 else hist.Bin('ddc', r'Jet CvL score', 100, 0, 1), 
-                # hist.Bin('ddcvb', r'Jet CvB score',np.r_[0, np.geomspace(0.01, 1, 101)]) if self._v2 else hist.Bin('ddcvb', r'Jet CvB score', 100, 0, 1), 
-                hist.Bin('ddc', r'Jet CvL score', np.r_[np.linspace(0, 0.15, 31), np.linspace(0.15, 1, 86)]), 
-                hist.Bin('ddcvb', r'Jet CvB score', np.r_[np.linspace(0, 0.15, 31), np.linspace(0.15, 1, 86)]),
+            'templates': hist2.Hist(
+                hist2.axis.StrCategory([], name='dataset', growth=True),
+                hist2.axis.StrCategory([], name='region', growth=True),
+                hist2.axis.StrCategory([], name='systematic', growth=True),
+                hist2.axis.IntCategory([0, 1, 2, 3], name='genflavor'),
+                hist2.axis.Variable([450, 500, 550, 600, 675, 800, 1200], name='pt', label=r'Jet $p_{T}$ [GeV]'),
+                hist2.axis.Regular(23, 40, 201, name='msd', label=r'Jet $m_{sd}$'),
+                hist2.axis.Variable([0, 0.7, 0.89, 1], name='ddb', label=r'Jet ddb score', flow=False),
+                hist2.axis.Variable([0, 0.1, 0.44, .83, 1], name='ddc', label=r'Jet ddc score', flow=False),
+                hist2.axis.Variable([0, 0.017, 0.2, 1], name='ddcvb', label=r'Jet ddcvb score', flow=False),
+                hist2.storage.Weight(),
             ),
-            'signal_optb': hist.Hist(
-                'Events',
-                hist.Cat('dataset', 'Dataset'),
-                hist.Cat('region', 'Region'),
-                hist.Bin('genflavor', 'Gen. jet flavor', [0, 1, 2, 3, 4]),
-                # hist.Bin('ddb', r'Jet BvL score', np.r_[0, np.geomspace(0.0001, 1, 101)]) if self._v2 else hist.Bin('ddb', r'Jet BvL score', 100, 0, 1), 
-                hist.Bin('ddb', r'Jet BvL score', np.r_[np.linspace(0, 0.15, 31), np.linspace(0.15, 1, 86)]),
+            'signal_opt': hist2.Hist(
+                hist2.axis.StrCategory([], name='dataset', growth=True),
+                hist2.axis.StrCategory([], name='region', growth=True),
+                hist2.axis.IntCategory([0, 1, 2, 3], name='genflavor'),
+                hist2.axis.Variable(optbins, name='ddc', label=r'Jet CvL score'),
+                hist2.axis.Variable(optbins, name='ddcvb', label=r'Jet CvB score'),
+                hist2.storage.Weight(),
             ),
-            'genresponse_noweight': hist.Hist(
-                'Events',
-                hist.Cat('dataset', 'Dataset'),
-                hist.Cat('region', 'Region'),
-                hist.Cat('systematic', 'Systematic'),
-                hist.Bin('pt', r'Jet $p_{T}$ [GeV]', [450, 500, 550, 600, 675, 800, 1200]),
-                hist.Bin('genpt', r'Jet $p_{T}$ [GeV]', np.geomspace(400, 1200, 60)),
+            'signal_optb': hist2.Hist(
+                hist2.axis.StrCategory([], name='dataset', growth=True),
+                hist2.axis.StrCategory([], name='region', growth=True),
+                hist2.axis.IntCategory([0, 1, 2, 3], name='genflavor'),
+                hist2.axis.Variable(optbins, name='ddb', label=r'Jet BvL score'),
+                hist2.storage.Weight(),
             ),
-            'genresponse': hist.Hist(
-                'Events',
-                hist.Cat('dataset', 'Dataset'),
-                hist.Cat('region', 'Region'),
-                hist.Cat('systematic', 'Systematic'),
-                hist.Bin('pt', r'Jet $p_{T}$ [GeV]', [450, 500, 550, 600, 675, 800, 1200]),
-                hist.Bin('genpt', r'Generated Higgs $p_{T}$ [GeV]', [200, 300, 450, 650, 7500]),
+            'genresponse_noweight': hist2.Hist(
+                hist2.axis.StrCategory([], name='dataset', growth=True),
+                hist2.axis.StrCategory([], name='region', growth=True),
+                hist2.axis.StrCategory([], name='systematic', growth=True),
+                hist2.axis.Variable([450, 500, 550, 600, 675, 800, 1200], name='pt', label=r'Jet $p_{T}$ [GeV]'),
+                hist2.axis.Variable(np.geomspace(400, 1200, 60), name='genpt', label=r'Generated Higgs $p_{T}$ [GeV]'),
+                hist2.storage.Double(),
+            ),
+            'genresponse': hist2.Hist(
+                hist2.axis.StrCategory([], name='dataset', growth=True),
+                hist2.axis.StrCategory([], name='region', growth=True),
+                hist2.axis.StrCategory([], name='systematic', growth=True),
+                hist2.axis.Variable([450, 500, 550, 600, 675, 800, 1200], name='pt', label=r'Jet $p_{T}$ [GeV]'),
+                hist2.axis.Variable([200, 300, 450, 650, 7500], name='genpt', label=r'Generated Higgs $p_{T}$ [GeV]'),
+                hist2.storage.Weight(),
             ),
         }
 
