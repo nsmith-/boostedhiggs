@@ -209,7 +209,7 @@ class HbbProcessor(processor.ProcessorABC):
         nojer = "NOJER" if self._skipJER else ""
         fatjets = fatjet_factory[f"{self._year}mc{nojer}"].build(add_jec_variables(events.FatJet, events.fixedGridRhoFastjetAll), jec_cache)
         jets = jet_factory[f"{self._year}mc{nojer}"].build(add_jec_variables(events.Jet, events.fixedGridRhoFastjetAll), jec_cache)
-        met = met_factory.build(events.MET, jets, jec_cache)
+        met = met_factory.build(events.MET, jets, {})
 
         shifts = [
             ({"Jet": jets, "FatJet": fatjets, "MET": met}, None),
@@ -396,7 +396,7 @@ class HbbProcessor(processor.ProcessorABC):
         #####
 
         if isRealData :
-            genflavor = candidatejet.pt - candidatejet.pt  # zeros_like
+            genflavor = 0
         else:
             weights.add('genweight', events.genWeight)
             add_pileup_weight(weights, events.Pileup.nPU, self._year, dataset)
@@ -436,6 +436,8 @@ class HbbProcessor(processor.ProcessorABC):
                 ar = ak.to_numpy(ak.fill_none(val[cut], np.nan))
                 return ar
 
+        import time
+        tic = time.time()
         if shift_name is None:
             for region, cuts in regions.items():
                 # allcuts = set(["id"])
@@ -557,6 +559,8 @@ class HbbProcessor(processor.ProcessorABC):
                 for c in events.LHEWeight.fields[1:]:
                     fill(region, 'LHEWeight_%s' % c, events.LHEWeight[c])
 
+        toc = time.time()
+        output["filltime"] = toc - tic
         if shift_name is None:
             output["weightStats"] = weights.weightStatistics
         return output
