@@ -21,6 +21,7 @@ from boostedhiggs.corrections import (
     add_pileup_weight,
     add_VJets_NLOkFactor,
     add_jetTriggerWeight,
+    add_jetTriggerWeight17mod,
     jet_factory,
     fatjet_factory,
     add_jec_variables,
@@ -42,19 +43,18 @@ def update(events, collections):
 
 class HbbProcessor(processor.ProcessorABC):
     def __init__(self, year='2017', jet_arbitration='pt', v2=False, v3=False, v4=False,
-            nnlops_rew=False,  skipJER=False, tightMatch=False,
-        ):
-        # v2 DDXv2
-        # v3 ParticleNet
-        # v4 mix
+                 nnlops_rew=False, skipJER=False, tightMatch=False, newTrigger=False, looseTau=False
+                 ):
         self._year = year
-        self._v2 = v2
-        self._v3 = v3
+        self._v2 = v2  # DDX v2
+        self._v3 = v3  # ParticleNet
         self._v4 = v4
-        self._nnlops_rew = nnlops_rew # for 2018, reweight POWHEG to NNLOPS
+        self._nnlops_rew = nnlops_rew  # for 2018, reweight POWHEG to NNLOPS
         self._jet_arbitration = jet_arbitration
         self._skipJER = skipJER
         self._tightMatch = tightMatch
+        self._newTrigger = newTrigger  # Fewer triggers, new maps (2017 only, ~no effect)
+        self._looseTau = looseTau  # Looser tau veto
 
         self._btagSF = BTagCorrector(year, 'medium')
 
@@ -109,9 +109,17 @@ class HbbProcessor(processor.ProcessorABC):
                 'AK8PFJet330_TrimMass30_PFAK8BoostedDoubleB_np4',
             ],
         }
+        if self._newTrigger:
+            self._triggers['2017'] = [
+                'PFHT1050',
+                'AK8PFJet400_TrimMass30',
+                'AK8PFHT800_TrimMass50',
+                'AK8PFJet500'
+            ]
+        print(self._triggers[year])
 
         self._json_paths = {
-            '2016': 'jsons/Cert_271036-284044_13TeV_23Sep2016ReReco_Collisions16_JSON.txt', 
+            '2016': 'jsons/Cert_271036-284044_13TeV_23Sep2016ReReco_Collisions16_JSON.txt',
             '2017': 'jsons/Cert_294927-306462_13TeV_EOY2017ReReco_Collisions17_JSON_v1.txt',
             '2018': 'jsons/Cert_314472-325175_13TeV_17SeptEarlyReReco2018ABC_PromptEraD_Collisions18_JSON.txt',
         }
@@ -264,13 +272,13 @@ class HbbProcessor(processor.ProcessorABC):
         selection.add('muontrigger', trigger)
         selection.add('lumimask', lumi_mask)
 
-        
+
         fatjets = events.FatJet
         fatjets['msdcorr'] = corrected_msoftdrop(fatjets)
         fatjets['qcdrho'] = 2 * np.log(fatjets.msdcorr / fatjets.pt)
         fatjets['n2ddt'] = fatjets.n2b1 - n2ddt_shift(fatjets, year=self._year)
         fatjets['msdcorr_full'] = fatjets['msdcorr'] * self._msdSF[self._year]
-        
+
         candidatejet = fatjets[
             # https://github.com/DAZSLE/BaconAnalyzer/blob/master/Analyzer/src/VJetLoader.cc#L269
             (fatjets.pt > 200)
@@ -310,7 +318,7 @@ class HbbProcessor(processor.ProcessorABC):
             bvl = candidatejet.btagDDBvL
             cvl = candidatejet.btagDDCvL
             cvb = candidatejet.btagDDCvB
-    
+
 
         selection.add('minjetkin',
             (candidatejet.pt >= 450)
@@ -361,25 +369,38 @@ class HbbProcessor(processor.ProcessorABC):
         nmuons = ak.sum(goodmuon, axis=1)
         leadingmuon = ak.firsts(events.Muon[goodmuon])
 
-        goodelectron = (
-            (events.Electron.pt > 10)
-            & (abs(events.Electron.eta) < 2.5)
-            & (events.Electron.cutBased >= events.Electron.LOOSE)
-        )
-        nelectrons = ak.sum(goodelectron, axis=1)
+        if self._looseTau:
+            goodelectron = (
+                (events.Electron.pt > 10)
+                & (abs(events.Electron.eta) < 2.5)
+                & (events.Electron.cutBased >= events.Electron.LOOSE)
+            )
+            nelectrons = ak.sum(goodelectron, axis=1)
 
-        ntaus = ak.sum(
-            (
+            ntaus = ak.sum(
+                (
+                    (events.Tau.pt > 20)
+                    & (abs(events.Tau.eta) < 2.3)
+                    & events.Tau.idDecayMode
+                    & (events.Tau.rawIso < 5)
+                    & (events.Tau.idMVAoldDM2017v1 >= 16)
+                    & ak.all(events.Tau.metric_table(events.Muon[goodmuon]) > 0.4, axis=2)
+                    & ak.all(events.Tau.metric_table(events.Electron[goodelectron]) > 0.4, axis=2)
+                ),
+                axis=1,
+            )
+        else:
+            nelectrons = ak.sum(
+                (events.Electron.pt > 10)
+                & (abs(events.Electron.eta) < 2.5)
+                & (events.Electron.cutBased >= events.Electron.LOOSE),
+                axis=1,
+            )
+            ntaus = ak.sum(
                 (events.Tau.pt > 20)
-                & (abs(events.Tau.eta) < 2.3)
-                & events.Tau.idDecayMode
-                & (events.Tau.rawIso < 5)
-                & (events.Tau.idMVAoldDM2017v1 >= 16)
-                & ak.all(events.Tau.metric_table(events.Muon[goodmuon]) > 0.4, axis=2)
-                & ak.all(events.Tau.metric_table(events.Electron[goodelectron]) > 0.4, axis=2)
-            ),
-            axis=1,
-        )
+                & events.Tau.idDecayMode,  # bacon iso looser than Nano selection
+                axis=1,
+            )
 
         selection.add('noleptons', (nmuons == 0) & (nelectrons == 0) & (ntaus == 0))
         selection.add('onemuon', (nmuons == 1) & (nelectrons == 0) & (ntaus == 0))
@@ -389,7 +410,7 @@ class HbbProcessor(processor.ProcessorABC):
         # W-Tag
         # tag side
         selection.add('ak4btagMediumOppHem', ak.max(jets[dphi > np.pi / 2].btagDeepB, axis=1, mask_identity=False) > BTagEfficiency.btagWPs[self._year]['medium'])
-        selection.add('met40p', met.pt > 40.) 
+        selection.add('met40p', met.pt > 40.)
         selection.add('tightMuon', (leadingmuon.tightId) & (leadingmuon.pt > 53.))
         selection.add('ptrecoW', (leadingmuon + met).pt > 250.)
         selection.add('ak4btagNearMu', leadingmuon.delta_r(leadingmuon.nearest(ak4_away, axis=None)) < 2.0 )
@@ -399,7 +420,7 @@ class HbbProcessor(processor.ProcessorABC):
         #####
 
         if isRealData :
-            genflavor = 0
+            genflavor = ak.zeros_like(candidatejet.pt)
         else:
             weights.add('genweight', events.genWeight)
             add_pileup_weight(weights, events.Pileup.nPU, self._year, dataset)
@@ -414,11 +435,14 @@ class HbbProcessor(processor.ProcessorABC):
             genBosonPt = ak.fill_none(ak.firsts(bosons.pt), 0)
             add_VJets_NLOkFactor(weights, genBosonPt, self._year, dataset)
             weights_wtag = copy.deepcopy(weights)
-            add_jetTriggerWeight(weights, candidatejet.msdcorr, candidatejet.pt, self._year)
+            if self._year == '2017' and self._newTrigger:
+                add_jetTriggerWeight17mod(weights, candidatejet.msdcorr, candidatejet.pt, self._year)
+            else:
+                add_jetTriggerWeight(weights, candidatejet.msdcorr, candidatejet.pt, self._year)
             if shift_name is None:
                 output['btagWeight'].fill(dataset=dataset, val=self._btagSF.addBtagWeight(weights, ak4_away))
             if self._nnlops_rew and dataset in ['GluGluHToCC_M125_13TeV_powheg_pythia8']:
-                weights.add('minlo_rew', powheg_to_nnlops(ak.to_numpy(genBosonPt)))            
+                weights.add('minlo_rew', powheg_to_nnlops(ak.to_numpy(genBosonPt)))
             logger.debug("Weight statistics: %r" % weights.weightStatistics)
 
         msd_matched = candidatejet.msdcorr * self._msdSF[self._year] * (genflavor > 0) + candidatejet.msdcorr * (genflavor == 0)
@@ -489,7 +513,7 @@ class HbbProcessor(processor.ProcessorABC):
                 weight = weights.weight()[cut] * wmod[cut]
             if systematic is None:
                 weight_wtag = weights_wtag.weight(modifier=systematic)[cut]
-            
+
 
             output['templates'].fill(
                 dataset=dataset,
@@ -516,7 +540,7 @@ class HbbProcessor(processor.ProcessorABC):
                     genpt=normalize(genBosonPt, cut),
                     weight=_custom_weight,
                 )
-            
+
                 output['genresponse'].fill(
                     dataset=dataset,
                     region=region,
