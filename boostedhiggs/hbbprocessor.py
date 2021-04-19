@@ -373,7 +373,7 @@ class HbbProcessor(processor.ProcessorABC):
             goodelectron = (
                 (events.Electron.pt > 10)
                 & (abs(events.Electron.eta) < 2.5)
-                & (events.Electron.cutBased >= events.Electron.LOOSE)
+                & (events.Electron.cutBased >= events.Electron.VETO)
             )
             nelectrons = ak.sum(goodelectron, axis=1)
 
@@ -382,8 +382,7 @@ class HbbProcessor(processor.ProcessorABC):
                     (events.Tau.pt > 20)
                     & (abs(events.Tau.eta) < 2.3)
                     & events.Tau.idDecayMode
-                    & (events.Tau.rawIso < 5)
-                    & (events.Tau.idMVAoldDM2017v1 >= 16)
+                    & ((events.Tau.idMVAoldDM2017v2 & 2) != 0)
                     & ak.all(events.Tau.metric_table(events.Muon[goodmuon]) > 0.4, axis=2)
                     & ak.all(events.Tau.metric_table(events.Electron[goodelectron]) > 0.4, axis=2)
                 ),
@@ -399,6 +398,8 @@ class HbbProcessor(processor.ProcessorABC):
             ntaus = ak.sum(
                 (events.Tau.pt > 20)
                 & events.Tau.idDecayMode,  # bacon iso looser than Nano selection
+                & ak.all(events.Tau.metric_table(events.Muon[goodmuon]) > 0.4, axis=2)
+                & ak.all(events.Tau.metric_table(events.Electron[goodelectron]) > 0.4, axis=2)
                 axis=1,
             )
 
