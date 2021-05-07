@@ -4,6 +4,7 @@ import gzip
 import pickle
 import cloudpickle
 import importlib.resources
+import correctionlib
 from coffea.lookup_tools.lookup_base import lookup_base
 from coffea import lookup_tools
 from coffea import util
@@ -87,6 +88,81 @@ def add_VJets_NLOkFactor(weights, genBosonPt, year, dataset):
     weights.add('VJets_NLOkFactor', nlo_over_lo_qcd * nlo_over_lo_ewk)
 
 
+with importlib.resources.path("boostedhiggs.data", "vjets_corrections.json") as filename:
+    vjets_kfactors = correctionlib.CorrectionSet.from_file(str(filename))
+
+
+def add_VJets_kFactors(weights, genpart, dataset):
+    """Revised version of add_VJets_NLOkFactor, for both NLO EW and ~NNLO QCD"""
+    def get_vpt(check_offshell=False):
+        """Only the leptonic samples have no resonance in the decay tree, and only
+        when M is beyond the configured Breit-Wigner cutoff (usually 15*width)
+        """
+        boson = ak.firsts(genpart[
+            ((genpart.pdgId == 23)|(abs(genpart.pdgId) == 24))
+            & genpart.hasFlags(["fromHardProcess", "isLastCopy"])
+        ])
+        if check_offshell:
+            offshell = genpart[
+                genpart.hasFlags(["fromHardProcess", "isLastCopy"])
+                & ak.is_none(boson)
+                & (abs(genpart.pdgId) >= 11) & (abs(genpart.pdgId) <= 16)
+            ].sum()
+            return ak.where(ak.is_none(boson.pt), offshell.pt, boson.pt)
+        return np.array(ak.fill_none(boson.pt, 0.))
+
+    common_systs = [
+        "d1K_NLO",
+        "d2K_NLO",
+        "d3K_NLO",
+        "d1kappa_EW",
+    ]
+    zsysts = common_systs + [
+        "Z_d2kappa_EW",
+        "Z_d3kappa_EW",
+    ]
+    wsysts = common_systs + [
+        "W_d2kappa_EW",
+        "W_d3kappa_EW",
+    ]
+
+    def add_systs(systlist, qcdcorr, ewkcorr, vpt):
+        ewknom = ewkcorr.evaluate("nominal", vpt)
+        weights.add("vjets_nominal", qcdcorr * ewknom if qcdcorr is not None else ewknom)
+        ones = np.ones_like(vpt)
+        for syst in systlist:
+            weights.add(syst, ones, ewkcorr.evaluate(syst + "_up", vpt) / ewknom, ewkcorr.evaluate(syst + "_down", vpt) / ewknom)
+
+    if "ZJetsToQQ_HT" in dataset and "TuneCUETP8M1" in dataset:
+        vpt = get_vpt()
+        qcdcorr = vjets_kfactors["Z_MLM2016toFXFX"].evaluate(vpt)
+        ewkcorr = vjets_kfactors["Z_FixedOrderComponent"]
+        add_systs(zsysts, qcdcorr, ewkcorr, vpt)
+    elif "WJetsToQQ_HT" in dataset and "TuneCUETP8M1" in dataset:
+        vpt = get_vpt()
+        qcdcorr = vjets_kfactors["W_MLM2016toFXFX"].evaluate(vpt)
+        ewkcorr = vjets_kfactors["W_FixedOrderComponent"]
+        add_systs(wsysts, qcdcorr, ewkcorr, vpt)
+    elif "ZJetsToQQ_HT" in dataset and "TuneCP5" in dataset:
+        vpt = get_vpt()
+        qcdcorr = vjets_kfactors["Z_MLM2017toFXFX"].evaluate(vpt)
+        ewkcorr = vjets_kfactors["Z_FixedOrderComponent"]
+        add_systs(zsysts, qcdcorr, ewkcorr, vpt)
+    elif "WJetsToQQ_HT" in dataset and "TuneCP5" in dataset:
+        vpt = get_vpt()
+        qcdcorr = vjets_kfactors["W_MLM2017toFXFX"].evaluate(vpt)
+        ewkcorr = vjets_kfactors["W_FixedOrderComponent"]
+        add_systs(wsysts, qcdcorr, ewkcorr, vpt)
+    elif ("DY1JetsToLL_M-50" in dataset or "DY2JetsToLL_M-50" in dataset) and "amcnloFXFX" in dataset:
+        vpt = get_vpt(check_offshell=True)
+        ewkcorr = vjets_kfactors["Z_FixedOrderComponent"]
+        add_systs(zsysts, None, ewkcorr, vpt)
+    elif ("W1JetsToLNu" in dataset or "W2JetsToLNu" in dataset) and "amcnloFXFX" in dataset:
+        vpt = get_vpt(check_offshell=True)
+        ewkcorr = vjets_kfactors["W_FixedOrderComponent"]
+        add_systs(wsysts, None, ewkcorr, vpt)
+
+
 def add_jetTriggerWeight(weights, jet_msd, jet_pt, year):
     nom = compiled[f'{year}_trigweight_msd_pt'](jet_msd, jet_pt)
     up = compiled[f'{year}_trigweight_msd_pt_trigweightUp'](jet_msd, jet_pt)
@@ -94,16 +170,16 @@ def add_jetTriggerWeight(weights, jet_msd, jet_pt, year):
     weights.add('jet_trigger', nom, up, down)
 
 
-with importlib.resources.path("boostedhiggs.data", 'new_jettrigger_sf.coffea') as filename:
-    trigmaps17 = util.load(filename)
-for key in trigmaps17.keys():
-    compiled[key] = trigmaps17[key]
+with importlib.resources.path("boostedhiggs.data", "fatjet_triggerSF.json") as filename:
+    jet_triggerSF = correctionlib.CorrectionSet.from_file(str(filename))
 
 
-def add_jetTriggerWeight17mod(weights, jet_msd, jet_pt, year):
-    nom = compiled[f'{year}_jettrigger'](jet_pt, jet_msd)
-    up = compiled[f'{year}_jettrigger_up'](jet_pt, jet_msd)
-    down = compiled[f'{year}_jettrigger_down'](jet_pt, jet_msd)
+def add_jetTriggerSF(weights, leadingjet, year):
+    jet_pt = np.array(ak.fill_none(leadingjet.pt, 0.))
+    jet_msd = np.array(ak.fill_none(leadingjet.msoftdrop, 0.))  # note: uncorrected
+    nom = jet_triggerSF[f'fatjet_triggerSF{year}'].evaluate("nominal", jet_pt, jet_msd)
+    up = jet_triggerSF[f'fatjet_triggerSF{year}'].evaluate("stat_up", jet_pt, jet_msd)
+    down = jet_triggerSF[f'fatjet_triggerSF{year}'].evaluate("stat_dn", jet_pt, jet_msd)
     weights.add('jet_trigger', nom, up, down)
 
 
