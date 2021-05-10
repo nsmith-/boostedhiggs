@@ -43,14 +43,12 @@ def update(events, collections):
 
 
 class HbbProcessor(processor.ProcessorABC):
-    def __init__(self, year='2017', jet_arbitration='pt', v2=False, v3=False, v4=False,
+    def __init__(self, year='2017', jet_arbitration='pt', tagger='v2', 
                  nnlops_rew=False, skipJER=False, tightMatch=False, newTrigger=False, looseTau=False,
                  newVjetsKfactor=False,
                  ):
         self._year = year
-        self._v2 = v2  # DDX v2
-        self._v3 = v3  # ParticleNet
-        self._v4 = v4
+        self._tagger  = tagger
         self._nnlops_rew = nnlops_rew  # for 2018, reweight POWHEG to NNLOPS
         self._jet_arbitration = jet_arbitration
         self._skipJER = skipJER
@@ -118,6 +116,19 @@ class HbbProcessor(processor.ProcessorABC):
             '2018': 'jsons/Cert_314472-325175_13TeV_17SeptEarlyReReco2018ABC_PromptEraD_Collisions18_JSON.txt',
         }
 
+        if self._tagger == 'v3':
+            taggerbins = (
+                hist2.axis.Variable([0, 0.7, 0.89, 1], name='ddb', label=r'Jet ddb score', flow=False),
+                hist2.axis.Variable([0, 0.44, .84, 1], name='ddc', label=r'Jet ddc score', flow=False),
+                hist2.axis.Variable([0, 0.017, 0.11, 1], name='ddcvb', label=r'Jet ddcvb score', flow=False),
+            )
+        else:
+            taggerbins = (
+                hist2.axis.Variable([0, 0.7, 0.89, 1], name='ddb', label=r'Jet ddb score', flow=False),
+                hist2.axis.Variable([0, 0.34, .45, 0.49, 1], name='ddc', label=r'Jet ddc score', flow=False),
+                hist2.axis.Variable([0, 0.03, 0.035, 1], name='ddcvb', label=r'Jet ddcvb score', flow=False),
+            )
+
         optbins = np.r_[np.linspace(0, 0.15, 30, endpoint=False), np.linspace(0.15, 1, 86)]
         self.make_output = lambda: {
             'sumw': 0.,
@@ -157,9 +168,7 @@ class HbbProcessor(processor.ProcessorABC):
                 hist2.axis.IntCategory([0, 1, 2, 3], name='genflavor'),
                 hist2.axis.Variable([450, 500, 550, 600, 675, 800, 1200], name='pt', label=r'Jet $p_{T}$ [GeV]'),
                 hist2.axis.Regular(23, 40, 201, name='msd', label=r'Jet $m_{sd}$'),
-                hist2.axis.Variable([0, 0.7, 0.89, 1], name='ddb', label=r'Jet ddb score', flow=False),
-                hist2.axis.Variable([0, 0.1, 0.44, .83, 1], name='ddc', label=r'Jet ddc score', flow=False),
-                hist2.axis.Variable([0, 0.017, 0.2, 1], name='ddcvb', label=r'Jet ddcvb score', flow=False),
+                *taggerbins,            
                 hist2.storage.Weight(),
             ),
             'signal_opt': hist2.Hist(
@@ -264,39 +273,40 @@ class HbbProcessor(processor.ProcessorABC):
             & (abs(fatjets.eta) < 2.5)
             & fatjets.isTight  # this is loose in sampleContainer
         ]
+
+        candidatejet = candidatejet[:, :2] # Only consider first two to match generators
         if self._jet_arbitration == 'pt':
             candidatejet = ak.firsts(candidatejet)
         elif self._jet_arbitration == 'mass':
-            candidatejet = candidatejet[
-                ak.argmax(candidatejet.msdcorr)
-            ]
+            candidatejet = ak.firsts(candidatejet[ak.argmax(candidatejet.msdcorr, axis=1, keepdims=True)])
         elif self._jet_arbitration == 'n2':
-            candidatejet = candidatejet[
-                ak.argmin(candidatejet.n2ddt)
-            ]
+            candidatejet = ak.firsts(candidatejet[ak.argmin(candidatejet.n2ddt, axis=1, keepdims=True)])
         elif self._jet_arbitration == 'ddb':
-            candidatejet = candidatejet[
-                ak.argmax(candidatejet.btagDDBvL)
-            ]
+            candidatejet = ak.firsts(candidatejet[ak.argmax(candidatejet.btagDDBvLV2, axis=1, keepdims=True)])
+        elif self._jet_arbitration == 'ddc':
+            candidatejet = ak.firsts(candidatejet[ak.argmax(candidatejet.btagDDCvLV2, axis=1, keepdims=True)])
         else:
             raise RuntimeError("Unknown candidate jet arbitration")
 
-        if self._v2:
-            bvl = candidatejet.btagDDBvLV2
-            cvl = candidatejet.btagDDCvLV2
-            cvb = candidatejet.btagDDCvBV2
-        elif self._v3:
-            bvl = candidatejet.particleNet_HbbvsQCD
-            cvl = candidatejet.particleNet_HccvsQCD
-            cvb = candidatejet.particleNetMD_Xcc/(candidatejet.particleNetMD_Xcc + candidatejet.particleNetMD_Xbb)
-        elif self._v4:
-            bvl = candidatejet.particleNet_HbbvsQCD
-            cvl = candidatejet.btagDDCvLV2
-            cvb = candidatejet.particleNetMD_Xcc/(candidatejet.particleNetMD_Xcc + candidatejet.particleNetMD_Xbb)
-        else:
+        if self._tagger == 'v1':
             bvl = candidatejet.btagDDBvL
             cvl = candidatejet.btagDDCvL
             cvb = candidatejet.btagDDCvB
+        elif self._tagger == 'v2':
+            bvl = candidatejet.btagDDBvLV2
+            cvl = candidatejet.btagDDCvLV2
+            cvb = candidatejet.btagDDCvBV2
+        elif self._tagger == 'v3':
+            bvl = candidatejet.particleNetMD_Xbb
+            cvl = candidatejet.particleNetMD_Xcc/(1 - candidatejet.particleNetMD_Xbb)
+            cvb = candidatejet.particleNetMD_Xcc/(candidatejet.particleNetMD_Xcc + candidatejet.particleNetMD_Xbb)
+            
+        elif self._tagger == 'v4':
+            bvl = candidatejet.particleNetMD_Xbb
+            cvl = candidatejet.btagDDCvLV2
+            cvb = candidatejet.particleNetMD_Xcc/(candidatejet.particleNetMD_Xcc + candidatejet.particleNetMD_Xbb)
+        else:
+            raise ValueError("Not an option")
 
 
         selection.add('minjetkin',
@@ -314,14 +324,14 @@ class HbbProcessor(processor.ProcessorABC):
         )
         selection.add('jetid', candidatejet.isTight)
         selection.add('n2ddt', (candidatejet.n2ddt < 0.))
-        if not self._v2:
+        if not self._tagger == 'v2':
             selection.add('ddbpass', (bvl >= 0.89))
             selection.add('ddcpass', (cvl >= 0.83))
             selection.add('ddcvbpass', (cvb >= 0.2))
         else:
             selection.add('ddbpass', (bvl >= 0.7))
-            selection.add('ddcpass', (cvl >= 0.44))
-            selection.add('ddcvbpass', (cvb >= 0.017))
+            selection.add('ddcpass', (cvl >= 0.45))
+            selection.add('ddcvbpass', (cvb >= 0.03))
 
         jets = events.Jet
         jets = jets[
