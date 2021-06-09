@@ -23,6 +23,8 @@ from boostedhiggs.corrections import (
     add_VJets_kFactors,
     add_jetTriggerWeight,
     add_jetTriggerSF,
+    add_mutriggerSF,
+    add_mucorrectionsSF,
     jet_factory,
     fatjet_factory,
     add_jec_variables,
@@ -43,7 +45,7 @@ def update(events, collections):
 
 
 class HbbProcessor(processor.ProcessorABC):
-    def __init__(self, year='2017', jet_arbitration='pt', tagger='v2', 
+    def __init__(self, year='2017', jet_arbitration='pt', tagger='v2',
                  nnlops_rew=False, skipJER=False, tightMatch=False, newTrigger=False, looseTau=False,
                  newVjetsKfactor=False,
                  ):
@@ -135,21 +137,21 @@ class HbbProcessor(processor.ProcessorABC):
             'cutflow_msd': hist2.Hist(
                 hist2.axis.StrCategory([], name='region', growth=True),
                 hist2.axis.IntCategory([0, 1, 2, 3], name='genflavor'),
-                hist2.axis.IntCategory(range(11), name='cut', label='Cut index'),
+                hist2.axis.IntCategory([0, 1, 2, 3], name='cut', label='Cut index', growth=True),
                 hist2.axis.Regular(23, 40, 201, name='msd', label=r'Jet $m_{sd}$'),
                 hist2.storage.Weight(),
             ),
             'cutflow_eta': hist2.Hist(
                 hist2.axis.StrCategory([], name='region', growth=True),
                 hist2.axis.IntCategory([0, 1, 2, 3], name='genflavor'),
-                hist2.axis.IntCategory(range(11), name='cut', label='Cut index'),
+                hist2.axis.IntCategory([0, 1, 2, 3], name='cut', label='Cut index', growth=True),
                 hist2.axis.Regular(40, -2.5, 2.5, name='eta', label=r'Jet $\eta$'),
                 hist2.storage.Weight(),
             ),
             'cutflow_pt': hist2.Hist(
                 hist2.axis.StrCategory([], name='region', growth=True),
                 hist2.axis.IntCategory([0, 1, 2, 3], name='genflavor'),
-                hist2.axis.IntCategory(range(11), name='cut', label='Cut index'),
+                hist2.axis.IntCategory([0, 1, 2, 3], name='cut', label='Cut index', growth=True),
                 hist2.axis.Regular(100, 400, 1200, name='pt', label=r'Jet $p_{T}$ [GeV]'),
                 hist2.storage.Weight(),
             ),
@@ -168,7 +170,17 @@ class HbbProcessor(processor.ProcessorABC):
                 hist2.axis.IntCategory([0, 1, 2, 3], name='genflavor'),
                 hist2.axis.Variable([450, 500, 550, 600, 675, 800, 1200], name='pt', label=r'Jet $p_{T}$ [GeV]'),
                 hist2.axis.Regular(23, 40, 201, name='msd', label=r'Jet $m_{sd}$'),
-                *taggerbins,            
+                *taggerbins,
+                hist2.storage.Weight(),
+            ),
+            'wtag': hist2.Hist(
+                hist2.axis.StrCategory([], name='region', growth=True),
+                hist2.axis.StrCategory([], name='systematic', growth=True),
+                hist2.axis.IntCategory([0, 1, 2, 3], name='genflavor'),
+                hist2.axis.Variable([-1, 0, 1], name='n2ddt', label=r'N2ddt value'),
+                # hist2.axis.Variable([200, 450, 1200], name='pt', label=r'Jet $p_{T}$ [GeV]'),
+                hist2.axis.Regular(46, 40, 201, name='msd', label=r'Jet $m_{sd}$'),
+                *taggerbins[1:],
                 hist2.storage.Weight(),
             ),
             'signal_opt': hist2.Hist(
@@ -231,7 +243,7 @@ class HbbProcessor(processor.ProcessorABC):
         dataset = events.metadata['dataset']
         isRealData = not hasattr(events, "genWeight")
         selection = PackedSelection()
-        weights = Weights(len(events))
+        weights = Weights(len(events), storeIndividual=True)
         output = self.make_output()
         if shift_name is None and not isRealData:
             output['sumw'] = ak.sum(events.genWeight)
@@ -274,7 +286,7 @@ class HbbProcessor(processor.ProcessorABC):
             & fatjets.isTight  # this is loose in sampleContainer
         ]
 
-        candidatejet = candidatejet[:, :2] # Only consider first two to match generators
+        candidatejet = candidatejet[:, :2]  # Only consider first two to match generators
         if self._jet_arbitration == 'pt':
             candidatejet = ak.firsts(candidatejet)
         elif self._jet_arbitration == 'mass':
@@ -298,29 +310,29 @@ class HbbProcessor(processor.ProcessorABC):
             cvb = candidatejet.btagDDCvBV2
         elif self._tagger == 'v3':
             bvl = candidatejet.particleNetMD_Xbb
-            cvl = candidatejet.particleNetMD_Xcc/(1 - candidatejet.particleNetMD_Xbb)
-            cvb = candidatejet.particleNetMD_Xcc/(candidatejet.particleNetMD_Xcc + candidatejet.particleNetMD_Xbb)
-            
+            cvl = candidatejet.particleNetMD_Xcc / (1 - candidatejet.particleNetMD_Xbb)
+            cvb = candidatejet.particleNetMD_Xcc / (candidatejet.particleNetMD_Xcc + candidatejet.particleNetMD_Xbb)
+
         elif self._tagger == 'v4':
             bvl = candidatejet.particleNetMD_Xbb
             cvl = candidatejet.btagDDCvLV2
-            cvb = candidatejet.particleNetMD_Xcc/(candidatejet.particleNetMD_Xcc + candidatejet.particleNetMD_Xbb)
+            cvb = candidatejet.particleNetMD_Xcc / (candidatejet.particleNetMD_Xcc + candidatejet.particleNetMD_Xbb)
         else:
             raise ValueError("Not an option")
 
-
         selection.add('minjetkin',
             (candidatejet.pt >= 450)
+            & (candidatejet.pt < 1200)
             & (candidatejet.msdcorr >= 40.)
+            & (candidatejet.msdcorr < 201.)
             & (abs(candidatejet.eta) < 2.5)
         )
-        selection.add('jetacceptance',
-            (candidatejet.msdcorr >= 40.)
+        selection.add('minjetkinmu',
+            (candidatejet.pt >= 400)
             & (candidatejet.pt < 1200)
+            & (candidatejet.msdcorr >= 40.)
             & (candidatejet.msdcorr < 201.)
-        )
-        selection.add('jetkinematics',
-            (candidatejet.pt > 450)
+            & (abs(candidatejet.eta) < 2.5)
         )
         selection.add('jetid', candidatejet.isTight)
         selection.add('n2ddt', (candidatejet.n2ddt < 0.))
@@ -428,23 +440,30 @@ class HbbProcessor(processor.ProcessorABC):
                 add_VJets_kFactors(weights, events.GenPart, dataset)
             else:
                 add_VJets_NLOkFactor(weights, genBosonPt, self._year, dataset)
-            if self._newTrigger:
-                add_jetTriggerSF(weights, ak.firsts(fatjets), self._year)
-            else:
-                add_jetTriggerWeight(weights, candidatejet.msdcorr, candidatejet.pt, self._year)
             if shift_name is None:
                 output['btagWeight'].fill(val=self._btagSF.addBtagWeight(weights, ak4_away))
             if self._nnlops_rew and dataset in ['GluGluHToCC_M125_13TeV_powheg_pythia8']:
                 weights.add('minlo_rew', powheg_to_nnlops(ak.to_numpy(genBosonPt)))
+
+            if self._newTrigger:
+                add_jetTriggerSF(weights, ak.firsts(fatjets), self._year, selection)
+            else:
+                add_jetTriggerWeight(weights, candidatejet.msdcorr, candidatejet.pt, self._year)
+
+            add_mutriggerSF(weights, leadingmuon, self._year, selection)
+            add_mucorrectionsSF(weights, leadingmuon, self._year, selection)
+
             logger.debug("Weight statistics: %r" % weights.weightStatistics)
 
         msd_matched = candidatejet.msdcorr * self._msdSF[self._year] * (genflavor > 0) + candidatejet.msdcorr * (genflavor == 0)
 
         regions = {
-            'signal': ['noleptons', 'minjetkin',  'met', 'jetid', 'antiak4btagMediumOppHem', 'n2ddt', 'trigger', 'lumimask'],
-            'signal_noddt': ['noleptons', 'minjetkin',  'met', 'jetid', 'antiak4btagMediumOppHem', 'trigger', 'lumimask'],
-            'muoncontrol': ['muontrigger', 'minjetkin', 'jetacceptance', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8'],
-            'wtag': ['muontrigger', 'minWjetpteta',  'ak4btagMediumOppHem', 'met40p', 'tightMuon', 'noNearMuon', 'ptrecoW', 'ak4btagNearMu'],
+            'signal': ['noleptons', 'minjetkin', 'met', 'jetid', 'antiak4btagMediumOppHem', 'n2ddt', 'trigger', 'lumimask'],
+            'signal_noddt': ['noleptons', 'minjetkin', 'met', 'jetid', 'antiak4btagMediumOppHem', 'trigger', 'lumimask'],
+            'muoncontrol': ['minjetkinmu', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8', 'muontrigger', 'lumimask'],
+            'muoncontrol_noddt': ['minjetkinmu', 'jetid', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8', 'muontrigger', 'lumimask'],
+            'wtag': ['tightMuon', 'onemuon', 'noNearMuon', 'ak4btagNearMu', 'met40p', 'ak4btagMediumOppHem',
+                     'minWjetpteta', 'ptrecoW', 'muontrigger', 'lumimask'],
             'noselection': [],
         }
 
@@ -460,24 +479,42 @@ class HbbProcessor(processor.ProcessorABC):
         tic = time.time()
         if shift_name is None:
             for region, cuts in regions.items():
-                # allcuts = set(["id"])
                 allcuts = set([])
                 cut = selection.all(*allcuts)
-                output['cutflow_msd'].fill(region=region, genflavor=normalize(genflavor, None),
-                                    cut=0, weight=weights.weight(), msd=normalize(msd_matched, None))
-                output['cutflow_eta'].fill(region=region, genflavor=normalize(genflavor, cut),
-                                    cut=0, weight=weights.weight()[cut], eta=normalize(candidatejet.eta, cut))
-                output['cutflow_pt'].fill(region=region, genflavor=normalize(genflavor, cut),
-                                    cut=0, weight=weights.weight()[cut], pt=normalize(candidatejet.pt, cut))
+                output['cutflow_msd'].fill(region=region,
+                                           genflavor=normalize(genflavor, None),
+                                           cut=0,
+                                           weight=weights.weight(),
+                                           msd=normalize(msd_matched, None))
+                output['cutflow_eta'].fill(region=region,
+                                           genflavor=normalize(genflavor, cut),
+                                           cut=0,
+                                           weight=weights.weight()[cut],
+                                           eta=normalize(candidatejet.eta, cut))
+                output['cutflow_pt'].fill(region=region,
+                                          genflavor=normalize(genflavor, cut),
+                                          cut=0,
+                                          weight=weights.weight()[cut],
+                                          pt=normalize(candidatejet.pt, cut))
                 for i, cut in enumerate(cuts + ['ddcvbpass', 'ddcpass']):
                     allcuts.add(cut)
                     cut = selection.all(*allcuts)
-                    output['cutflow_msd'].fill(region=region, genflavor=normalize(genflavor, cut),
-                                        cut=i + 1, weight=weights.weight()[cut], msd=normalize(msd_matched, cut))
-                    output['cutflow_eta'].fill(region=region, genflavor=normalize(genflavor, cut),
-                            cut=i + 1, weight=weights.weight()[cut], eta=normalize(candidatejet.eta, cut))
-                    output['cutflow_pt'].fill(region=region, genflavor=normalize(genflavor, cut),
-                            cut=i + 1, weight=weights.weight()[cut], pt=normalize(candidatejet.pt, cut))
+                    print(allcuts)
+                    output['cutflow_msd'].fill(region=region,
+                                               genflavor=normalize(genflavor, cut),
+                                               cut=i + 1,
+                                               weight=weights.weight()[cut],
+                                               msd=normalize(msd_matched, cut))
+                    output['cutflow_eta'].fill(region=region,
+                                               genflavor=normalize(genflavor, cut),
+                                               cut=i + 1,
+                                               weight=weights.weight()[cut],
+                                               eta=normalize(candidatejet.eta, cut))
+                    output['cutflow_pt'].fill(region=region,
+                                              genflavor=normalize(genflavor, cut),
+                                              cut=i + 1,
+                                              weight=weights.weight()[cut],
+                                              pt=normalize(candidatejet.pt, cut))
 
 
         if shift_name is None:
@@ -508,6 +545,18 @@ class HbbProcessor(processor.ProcessorABC):
                 ddcvb=normalize(cvb, cut),
                 weight=weight,
             )
+            if region in ['wtag', 'noselection']:# and sname in ['nominal', 'pileup_weightDown', 'pileup_weightUp', 'jet_triggerDown', 'jet_triggerUp']:
+                output['wtag'].fill(
+                    region=region,
+                    systematic=sname,
+                    genflavor=normalize(genflavor, cut),
+                    # pt=normalize(candidatejet.pt, cut),
+                    msd=normalize(msd_matched, cut),
+                    n2ddt=normalize(candidatejet.n2ddt, cut),
+                    ddc=normalize(cvl, cut),
+                    ddcvb=normalize(cvb, cut),
+                    weight=weight,
+                )
             if not isRealData:
                 if wmod is not None:
                     _custom_weight = events.genWeight[cut] * wmod[cut]
@@ -542,7 +591,6 @@ class HbbProcessor(processor.ProcessorABC):
                     ddb=normalize(bvl, cut),
                     weight=weight,
                 )
-
 
         for region in regions:
             cut = selection.all(*(set(regions[region]) - {'n2ddt'}))

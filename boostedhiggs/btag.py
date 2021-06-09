@@ -77,9 +77,9 @@ class BTagCorrector:
         filename = os.path.join(os.path.dirname(__file__), 'data', files[year])
         self.sf = BTagScaleFactor(filename, workingpoint)
         files = {
-            '2016': 'btagQCD2017.coffea',
+            '2016': 'btagQCD2016.coffea',
             '2017': 'btagQCD2017.coffea',
-            '2018': 'btagQCD2017.coffea',
+            '2018': 'btagQCD2018.coffea',
         }
         filename = os.path.join(os.path.dirname(__file__), 'data', files[year])
         btag = util.load(filename)

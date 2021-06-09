@@ -17,8 +17,6 @@ with importlib.resources.path("boostedhiggs.data", "corrections.pkl.gz") as path
 compiled['2017_pileupweight']._values = np.minimum(5, compiled['2017_pileupweight']._values)
 compiled['2018_pileupweight']._values = np.minimum(5, compiled['2018_pileupweight']._values)
 
-# filename = os.path.join(DATA_DIR, 'powhegToMinloPtCC.coffea')
-# compiled['powheg_to_nnlops'] = util.load(filename)
 with importlib.resources.path("boostedhiggs.data", 'powhegToMinloPtCC.coffea') as filename:
     compiled['powheg_to_nnlops'] = util.load(filename)
 
@@ -174,13 +172,40 @@ with importlib.resources.path("boostedhiggs.data", "fatjet_triggerSF.json") as f
     jet_triggerSF = correctionlib.CorrectionSet.from_file(str(filename))
 
 
-def add_jetTriggerSF(weights, leadingjet, year):
+def add_jetTriggerSF(weights, leadingjet, year, selection):
+    def mask(w):
+        return np.where(selection.all('noleptons'), w, 1.)
+
     jet_pt = np.array(ak.fill_none(leadingjet.pt, 0.))
     jet_msd = np.array(ak.fill_none(leadingjet.msoftdrop, 0.))  # note: uncorrected
-    nom = jet_triggerSF[f'fatjet_triggerSF{year}'].evaluate("nominal", jet_pt, jet_msd)
-    up = jet_triggerSF[f'fatjet_triggerSF{year}'].evaluate("stat_up", jet_pt, jet_msd)
-    down = jet_triggerSF[f'fatjet_triggerSF{year}'].evaluate("stat_dn", jet_pt, jet_msd)
+    nom = mask(jet_triggerSF[f'fatjet_triggerSF{year}'].evaluate("nominal", jet_pt, jet_msd))
+    up = mask(jet_triggerSF[f'fatjet_triggerSF{year}'].evaluate("stat_up", jet_pt, jet_msd))
+    down = mask(jet_triggerSF[f'fatjet_triggerSF{year}'].evaluate("stat_dn", jet_pt, jet_msd))
     weights.add('jet_trigger', nom, up, down)
+
+def add_mutriggerSF(weights, leadingmuon, year, selection):
+    def mask(w):
+        return np.where(selection.all('onemuon'), w, 1.)
+
+    mu_pt = np.array(ak.fill_none(leadingmuon.pt, 0.))
+    mu_eta = np.array(ak.fill_none(abs(leadingmuon.eta), 0.))
+    nom = mask(compiled[f'{year}_mutrigweight_pt_abseta'](mu_pt, mu_eta))
+    shift = mask(compiled[f'{year}_mutrigweight_pt_abseta_mutrigweightShift'](mu_pt, mu_eta))
+    weights.add('mu_trigger', nom, shift, shift=True)
+
+def add_mucorrectionsSF(weights, leadingmuon, year, selection):
+    def mask(w):
+        return np.where(selection.all('onemuon'), w, 1.)
+
+    mu_pt = np.array(ak.fill_none(leadingmuon.pt, 0.))
+    mu_eta = np.array(ak.fill_none(abs(leadingmuon.eta), 0.))
+    nom = mask(compiled[f'{year}_muidweight_abseta_pt'](mu_eta, mu_pt))
+    shift = mask(compiled[f'{year}_muidweight_abseta_pt_muidweightShift'](mu_eta, mu_pt))
+    weights.add('mu_idweight', nom, shift, shift=True)
+
+    nom = mask(compiled[f'{year}_muisoweight_abseta_pt'](mu_eta, mu_pt))
+    shift = mask(compiled[f'{year}_muisoweight_abseta_pt_muisoweightShift'](mu_eta, mu_pt))
+    weights.add('mu_isoweight', nom, shift, shift=True)
 
 
 with importlib.resources.path("boostedhiggs.data", "jec_compiled.pkl.gz") as path:
