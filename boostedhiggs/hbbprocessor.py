@@ -410,13 +410,18 @@ class HbbProcessor(processor.ProcessorABC):
         selection.add('muonkin', (leadingmuon.pt > 55.) & (abs(leadingmuon.eta) < 2.1))
         selection.add('muonDphiAK8', abs(leadingmuon.delta_phi(candidatejet)) > 2*np.pi/3)
 
-        # W-Tag
+        # W-Tag (Tag and Probe)
         # tag side
         selection.add('ak4btagMediumOppHem', ak.max(jets[dphi > np.pi / 2].btagDeepB, axis=1, mask_identity=False) > BTagEfficiency.btagWPs[self._year]['medium'])
         selection.add('met40p', met.pt > 40.)
         selection.add('tightMuon', (leadingmuon.tightId) & (leadingmuon.pt > 53.))
         selection.add('ptrecoW', (leadingmuon + met).pt > 250.)
+        selection.add('ptrecoW200', (leadingmuon + met).pt > 200.)
         selection.add('ak4btagNearMu', leadingmuon.delta_r(leadingmuon.nearest(ak4_away, axis=None)) < 2.0 )
+        _bjets = jets.btagDeepB > BTagEfficiency.btagWPs[self._year]['medium']
+        _nearAK8 = jets.delta_r(candidatejet)  < 0.8
+        _nearMu = jets.delta_r(ak.firsts(events.Muon))  < 0.3
+        selection.add('ak4btagOld', ak.sum(_bjets & ~_nearAK8 & ~_nearMu, axis=1) >= 1)
         # probe side
         selection.add('minWjetpteta', (candidatejet.pt >= 200) & (abs(candidatejet.eta) < 2.4))
         selection.add('noNearMuon', candidatejet.delta_r(candidatejet.nearest(events.Muon[goodmuon], axis=None)) > 1.0)
@@ -464,6 +469,7 @@ class HbbProcessor(processor.ProcessorABC):
             'muoncontrol_noddt': ['minjetkinmu', 'jetid', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8', 'muontrigger', 'lumimask'],
             'wtag': ['tightMuon', 'onemuon', 'noNearMuon', 'ak4btagNearMu', 'met40p', 'ak4btagMediumOppHem',
                      'minWjetpteta', 'ptrecoW', 'muontrigger', 'lumimask'],
+            'wtag2': ['tightMuon', 'onemuon', 'met40p', 'ptrecoW200' , 'ak4btagOld', 'muontrigger', 'lumimask'],
             'noselection': [],
         }
 
@@ -499,7 +505,6 @@ class HbbProcessor(processor.ProcessorABC):
                 for i, cut in enumerate(cuts + ['ddcvbpass', 'ddcpass']):
                     allcuts.add(cut)
                     cut = selection.all(*allcuts)
-                    print(allcuts)
                     output['cutflow_msd'].fill(region=region,
                                                genflavor=normalize(genflavor, cut),
                                                cut=i + 1,
@@ -545,7 +550,7 @@ class HbbProcessor(processor.ProcessorABC):
                 ddcvb=normalize(cvb, cut),
                 weight=weight,
             )
-            if region in ['wtag', 'noselection']:# and sname in ['nominal', 'pileup_weightDown', 'pileup_weightUp', 'jet_triggerDown', 'jet_triggerUp']:
+            if region in ['wtag', 'wtag2', 'noselection']:# and sname in ['nominal', 'pileup_weightDown', 'pileup_weightUp', 'jet_triggerDown', 'jet_triggerUp']:
                 output['wtag'].fill(
                     region=region,
                     systematic=sname,
