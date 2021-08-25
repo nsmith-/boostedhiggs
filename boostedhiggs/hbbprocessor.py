@@ -18,6 +18,8 @@ from boostedhiggs.corrections import (
     corrected_msoftdrop,
     n2ddt_shift,
     powheg_to_nnlops,
+    add_ps_weight,
+    add_pdf_weight,
     add_pileup_weight,
     add_VJets_NLOkFactor,
     add_VJets_kFactors,
@@ -213,6 +215,7 @@ class HbbProcessor(processor.ProcessorABC):
         }
 
     def process(self, events):
+        print("HMM")
         isRealData = not hasattr(events, "genWeight")
 
         if isRealData:
@@ -237,6 +240,23 @@ class HbbProcessor(processor.ProcessorABC):
                 ({"Jet": jets.JER.up, "FatJet": fatjets.JER.up, "MET": met.JER.up}, "JERUp"),
                 ({"Jet": jets.JER.down, "FatJet": fatjets.JER.down, "MET": met.JER.down}, "JERDown"),
             ])
+        # HEM15/16 issue
+        if self._year == "2018":
+            _runid = (events.run >= 319077)
+            j_mask = ak.where((jets.phi > -1.57) & (jets.phi < -0.87) &
+                              (jets.eta > -2.5) & (jets.eta < 1.3) & _runid, 0.8, 1)
+            fj_mask = ak.where((fatjets.phi > -1.57) & (fatjets.phi < -0.87) &
+                               (fatjets.eta > -2.5) & (fatjets.eta < 1.3) & _runid, 
+                               0.8, 1)
+            shift_jets = copy.deepcopy(jets)
+            shift_fatjets = copy.deepcopy(fatjets)
+            for collection, mask in zip([shift_jets, shift_fatjets], [j_mask, fj_mask]):
+                collection["pt"] = mask * collection.pt
+                collection["mass"] = mask * collection.mass
+            shifts.extend([
+                ({"Jet": shift_jets, "FatJet": shift_fatjets, "MET": met}, "HEM18"),
+            ])
+
         return processor.accumulate(self.process_shift(update(events, collections), name) for collections, name in shifts)
 
     def process_shift(self, events, shift_name):
@@ -431,6 +451,14 @@ class HbbProcessor(processor.ProcessorABC):
             genflavor = ak.zeros_like(candidatejet.pt)
         else:
             weights.add('genweight', events.genWeight)
+            if "PSWeight" in events.fields:
+                add_ps_weight(weights, events.PSWeight)
+            else:
+                add_ps_weight(weights, None)
+            if "LHEPdfWeight" in events.fields:
+                add_pdf_weight(weights, events.LHEPdfWeight)
+            else:
+                add_pdf_weight(weights, None)
             add_pileup_weight(weights, events.Pileup.nPU, self._year, dataset)
             bosons = getBosons(events.GenPart)
             matchedBoson = candidatejet.nearest(bosons, axis=None, threshold=0.8)

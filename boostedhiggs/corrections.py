@@ -3,6 +3,7 @@ import awkward as ak
 import gzip
 import pickle
 import cloudpickle
+import warnings
 import importlib.resources
 import correctionlib
 from coffea.lookup_tools.lookup_base import lookup_base
@@ -49,6 +50,58 @@ def n2ddt_shift(fatjets, year='2017'):
 
 def powheg_to_nnlops(genpt):
     return compiled['powheg_to_nnlops'](genpt)
+
+def add_pdf_weight(weights, pdf_weights):
+    nom = np.ones(len(weights.weight()))
+    up = np.ones(len(weights.weight()))
+    down = np.ones(len(weights.weight()))
+
+    # NNPDF31_nnlo_hessian_pdfas
+    # https://lhapdfsets.web.cern.ch/current/NNPDF31_nnlo_hessian_pdfas/NNPDF31_nnlo_hessian_pdfas.info
+    if pdf_weights is not None and "306000 - 306102" in pdf_weights.__doc__:
+        # Hessian PDF weights
+        # Eq. 21 of https://arxiv.org/pdf/1510.03865v1.pdf
+        arg = pdf_weights[:, 1:-2] - np.ones((len(weights.weight()), 100))
+        summed = ak.sum(np.square(arg), axis=1)
+        pdf_unc = np.sqrt((1. / 99.) * summed)
+        weights.add('PDF_weight', nom, pdf_unc + nom)
+
+        # alpha_S weights
+        # Eq. 27 of same ref
+        as_unc = 0.5 * (pdf_weights[:, 102] - pdf_weights[:, 101])
+        weights.add('aS_weight', nom, as_unc + nom)
+
+        # PDF + alpha_S weights
+        # Eq. 28 of same ref
+        pdfas_unc = np.sqrt(np.square(pdf_unc) + np.square(as_unc))
+        weights.add('PDFaS_weight', nom, pdfas_unc + nom)
+
+    else:
+        weights.add('aS_weight', nom, up, down)
+        weights.add('PDF_weight', nom, up, down)
+        weights.add('PDFaS_weight', nom, up, down)
+
+# Jennet adds PS weights
+def add_ps_weight(weights, ps_weights):
+    nom = np.ones(len(weights.weight()))
+    up_isr = np.ones(len(weights.weight()))
+    down_isr = np.ones(len(weights.weight()))
+    up_fsr = np.ones(len(weights.weight()))
+    down_fsr = np.ones(len(weights.weight()))
+
+    if ps_weights is not None:
+        if len(ps_weights[0]) == 4:
+            up_isr = ps_weights[:, 0]
+            down_isr = ps_weights[:, 2]
+            up_fsr = ps_weights[:, 1]
+            down_fsr = ps_weights[:, 3]
+    #        up = np.maximum.reduce([up_isr, up_fsr, down_isr, down_fsr])
+    #        down = np.minimum.reduce([up_isr, up_fsr, down_isr, down_fsr])
+        else:
+            warnings.warn(f"PS weight vector has length {len(ps_weights[0])}")
+
+    weights.add('UEPS_ISR', nom, up_isr, down_isr)
+    weights.add('UEPS_FSR', nom, up_fsr, down_fsr)
 
 
 def add_pileup_weight(weights, nPU, year='2017', dataset=None):
