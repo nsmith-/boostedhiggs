@@ -28,9 +28,8 @@ class SoftDropWeight(lookup_base):
         cpar = np.array([1.09302, -0.000150068, 3.44866e-07, -2.68100e-10, 8.67440e-14, -1.00114e-17])
         fpar = np.array([1.27212, -0.000571640, 8.37289e-07, -5.20433e-10, 1.45375e-13, -1.50389e-17])
         genw = gpar[0] + gpar[1]*np.power(pt*gpar[2], -gpar[3])
-        ptpow = np.power.outer(pt, np.arange(cpar.size))
-        cenweight = np.dot(ptpow, cpar)
-        forweight = np.dot(ptpow, fpar)
+        cenweight = np.polyval(cpar[::-1], pt)
+        forweight = np.polyval(fpar[::-1], pt)
         weight = np.where(np.abs(eta) < 1.3, cenweight, forweight)
         return genw*weight
 
