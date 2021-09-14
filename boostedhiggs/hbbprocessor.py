@@ -114,6 +114,74 @@ class HbbProcessor(processor.ProcessorABC):
             ],
         }
 
+        # https://twiki.cern.ch/twiki/bin/view/CMS/MissingETOptionalFiltersRun2
+        self._met_filters = {
+            '2016': {
+                'data': [
+                    'goodVertices',
+                    'globalSuperTightHalo2016Filter',
+                    'HBHENoiseFilter',
+                    'HBHENoiseIsoFilter',
+                    'EcalDeadCellTriggerPrimitiveFilter',
+                    'BadPFMuonFilter',
+                    'eeBadScFilter',
+                ],
+                'mc': [
+                    'goodVertices',
+                    'globalSuperTightHalo2016Filter',
+                    'HBHENoiseFilter',
+                    'HBHENoiseIsoFilter',
+                    'EcalDeadCellTriggerPrimitiveFilter',
+                    'BadPFMuonFilter',
+                    # 'eeBadScFilter',
+                ],
+            },
+            '2017': {
+                'data': [
+                    'goodVertices',
+                    'globalSuperTightHalo2016Filter',
+                    'HBHENoiseFilter',
+                    'HBHENoiseIsoFilter',
+                    'EcalDeadCellTriggerPrimitiveFilter',
+                    'BadPFMuonFilter',
+                    'eeBadScFilter',
+                    'ecalBadCalibFilterV2',
+                ],
+                'mc': [
+                    'goodVertices',
+                    'globalSuperTightHalo2016Filter',
+                    'HBHENoiseFilter',
+                    'HBHENoiseIsoFilter',
+                    'EcalDeadCellTriggerPrimitiveFilter',
+                    'BadPFMuonFilter',
+                    'eeBadScFilter',
+                    'ecalBadCalibFilterV2',
+                ],
+            },
+            '2018': {
+                'data': [
+                    'goodVertices',
+                    'globalSuperTightHalo2016Filter',
+                    'HBHENoiseFilter',
+                    'HBHENoiseIsoFilter',
+                    'EcalDeadCellTriggerPrimitiveFilter',
+                    'BadPFMuonFilter',
+                    'eeBadScFilter',
+                    'ecalBadCalibFilterV2',
+                ],
+                'mc': [
+                    'goodVertices',
+                    'globalSuperTightHalo2016Filter',
+                    'HBHENoiseFilter',
+                    'HBHENoiseIsoFilter',
+                    'EcalDeadCellTriggerPrimitiveFilter',
+                    'BadPFMuonFilter',
+                    'eeBadScFilter',
+                    'ecalBadCalibFilterV2',
+                ],
+            },
+        }
+
         self._json_paths = {
             '2016': 'jsons/Cert_271036-284044_13TeV_23Sep2016ReReco_Collisions16_JSON.txt',
             '2017': 'jsons/Cert_294927-306462_13TeV_EOY2017ReReco_Collisions17_JSON_v1.txt',
@@ -288,11 +356,17 @@ class HbbProcessor(processor.ProcessorABC):
             trigger = np.zeros(len(events), dtype='bool')
             for t in self._muontriggers[self._year]:
                 if t in events.HLT.fields:
-                    trigger = trigger | events.HLT[t]
+                    trigger |= np.array(events.HLT[t])
             selection.add('muontrigger', trigger)
             del trigger
         else:
             selection.add('muontrigger', np.ones(len(events), dtype='bool'))
+
+        metfilter = np.ones(len(events), dtype='bool')
+        for flag in self._met_filters[self._year]['data' if isRealData else 'mc']:
+            metfilter &= np.array(events.Flag[flag])
+        selection.add('metfilter', metfilter)
+        del metfilter
 
         fatjets = events.FatJet
         fatjets['msdcorr'] = corrected_msoftdrop(fatjets)
@@ -487,18 +561,21 @@ class HbbProcessor(processor.ProcessorABC):
             add_mutriggerSF(weights, leadingmuon, self._year, selection)
             add_mucorrectionsSF(weights, leadingmuon, self._year, selection)
 
+            if self._year in ("2016", "2017"):
+                weights.add("L1Prefiring", events.L1PreFiringWeight.Nom, events.L1PreFiringWeight.Up, events.L1PreFiringWeight.Dn)
+
             logger.debug("Weight statistics: %r" % weights.weightStatistics)
 
         msd_matched = candidatejet.msdcorr * self._msdSF[self._year] * (genflavor > 0) + candidatejet.msdcorr * (genflavor == 0)
 
         regions = {
-            'signal': ['noleptons', 'minjetkin', 'met', 'jetid', 'antiak4btagMediumOppHem', 'n2ddt', 'trigger', 'lumimask'],
-            'signal_noddt': ['noleptons', 'minjetkin', 'met', 'jetid', 'antiak4btagMediumOppHem', 'trigger', 'lumimask'],
-            'muoncontrol': ['minjetkinmu', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8', 'muontrigger', 'lumimask'],
-            'muoncontrol_noddt': ['minjetkinmu', 'jetid', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8', 'muontrigger', 'lumimask'],
+            'signal': ['noleptons', 'minjetkin', 'met', 'jetid', 'antiak4btagMediumOppHem', 'n2ddt', 'trigger', 'lumimask', 'metfilter'],
+            'signal_noddt': ['noleptons', 'minjetkin', 'met', 'jetid', 'antiak4btagMediumOppHem', 'trigger', 'lumimask', 'metfilter'],
+            'muoncontrol': ['minjetkinmu', 'jetid', 'n2ddt', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8', 'muontrigger', 'lumimask', 'metfilter'],
+            'muoncontrol_noddt': ['minjetkinmu', 'jetid', 'ak4btagMedium08', 'onemuon', 'muonkin', 'muonDphiAK8', 'muontrigger', 'lumimask', 'metfilter'],
             'wtag': ['tightMuon', 'onemuon', 'noNearMuon', 'ak4btagNearMu', 'met40p', 'ak4btagMediumOppHem',
-                     'minWjetpteta', 'ptrecoW', 'muontrigger', 'lumimask'],
-            'wtag2': ['tightMuon', 'onemuon', 'met40p', 'ptrecoW200' , 'ak4btagOld', 'muontrigger', 'lumimask'],
+                     'minWjetpteta', 'ptrecoW', 'muontrigger', 'lumimask', 'metfilter'],
+            'wtag2': ['tightMuon', 'onemuon', 'met40p', 'ptrecoW200' , 'ak4btagOld', 'muontrigger', 'lumimask', 'metfilter'],
             'noselection': [],
         }
 
