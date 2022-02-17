@@ -2,9 +2,11 @@
 
 ## Quickstart
 ```bash
-# check your platform: CC7 shown below, for SL6 it would be "x86_64-slc6-gcc8-opt"
-source /cvmfs/sft.cern.ch/lcg/views/LCG_96python3/x86_64-centos7-gcc8-opt/setup.sh  # or .csh, etc.
 git clone git@github.com:nsmith-/boostedhiggs.git
 cd boostedhiggs
-pip install --user --editable .
+curl -OL https://raw.githubusercontent.com/CoffeaTeam/lpcjobqueue/main/bootstrap.sh
+bash bootstrap.sh
+rm bootstrap.sh
+./shell
+jupyter notebook --port 8xxx
 ```
