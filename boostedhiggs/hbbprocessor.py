@@ -627,7 +627,7 @@ class HbbProcessor(processor.ProcessorABC):
 
 
         if shift_name is None:
-            systematics = [None] + list(weights.variations)
+            systematics = [None] + sorted(weights.variations)
         else:
             systematics = [shift_name]
 
