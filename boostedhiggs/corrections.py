@@ -22,7 +22,7 @@ with importlib.resources.path("boostedhiggs.data", 'powhegToMinloPtCC.coffea') a
     compiled['powheg_to_nnlops'] = util.load(filename)
 
 class SoftDropWeight(lookup_base):
-    def _evaluate(self, pt, eta):
+    def _evaluate(self, pt, eta, **kwargs):
         gpar = np.array([1.00626, -1.06161, 0.0799900, 1.20454])
         cpar = np.array([1.09302, -0.000150068, 3.44866e-07, -2.68100e-10, 8.67440e-14, -1.00114e-17])
         fpar = np.array([1.27212, -0.000571640, 8.37289e-07, -5.20433e-10, 1.45375e-13, -1.50389e-17])

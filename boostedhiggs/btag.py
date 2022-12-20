@@ -2,7 +2,9 @@ import os
 import numpy
 import logging
 import awkward
-from coffea import processor, hist, util
+import hist
+from hist.intervals import clopper_pearson_interval
+from coffea import processor, util
 from coffea.lookup_tools.dense_lookup import dense_lookup
 from coffea.btag_tools import BTagScaleFactor
 
@@ -25,17 +27,6 @@ class BTagEfficiency(processor.ProcessorABC):
 
     def __init__(self, year='2017'):
         self._year = year
-        self._accumulator = hist.Hist(
-            'Events',
-            hist.Cat('btag', 'BTag WP pass/fail'),
-            hist.Bin('flavor', 'Jet hadronFlavour', [0, 4, 5, 6]),
-            hist.Bin('pt', 'Jet pT', [20, 30, 50, 70, 100, 140, 200, 300, 600, 1000]),
-            hist.Bin('abseta', 'Jet abseta', [0, 1.4, 2.0, 2.5]),
-        )
-
-    @property
-    def accumulator(self):
-        return self._accumulator
 
     def process(self, events):
         jets = events.Jet[
@@ -46,7 +37,13 @@ class BTagEfficiency(processor.ProcessorABC):
 
         passbtag = jets.btagDeepB > BTagEfficiency.btagWPs[self._year]['medium']
 
-        out = self.accumulator.identity()
+        out = hist.Hist(
+            hist.axis.StrCat(name='btag', label='BTag WP pass/fail'),
+            hist.axis.IntCat([0, 4, 5, 6], name='flavor', label='Jet hadronFlavour'),
+            hist.axis.Variable([20, 30, 50, 70, 100, 140, 200, 300, 600, 1000], name='pt', label='Jet pT'),
+            hist.axis.Variable([0, 1.4, 2.0, 2.5], name='abseta', label='Jet abseta'),
+            label='Events',
+        )
         out.fill(
             btag='pass',
             flavor=jets[passbtag].hadronFlavour.flatten(),
@@ -83,13 +80,13 @@ class BTagCorrector:
         }
         filename = os.path.join(os.path.dirname(__file__), 'data', files[year])
         btag = util.load(filename)
-        bpass = btag.integrate('btag', 'pass').values()[()]
-        ball = btag.integrate('btag').values()[()]
+        bpass = btag["pass", :, :, :].values()
+        ball = btag[::sum, :, :, :].values()
         nom = bpass / numpy.maximum(ball, 1.)
-        dn, up = hist.clopper_pearson_interval(bpass, ball)
-        self.eff = dense_lookup(nom, [ax.edges() for ax in btag.axes()[1:]])
-        self.eff_statUp = dense_lookup(up, [ax.edges() for ax in btag.axes()[1:]])
-        self.eff_statDn = dense_lookup(dn, [ax.edges() for ax in btag.axes()[1:]])
+        dn, up = clopper_pearson_interval(bpass, ball)
+        self.eff = dense_lookup(nom, [ax.edges for ax in btag.axes[1:]])
+        self.eff_statUp = dense_lookup(up, [ax.edges for ax in btag.axes[1:]])
+        self.eff_statDn = dense_lookup(dn, [ax.edges for ax in btag.axes[1:]])
 
     def addBtagWeight(self, weights, jets):
         abseta = abs(jets.eta)

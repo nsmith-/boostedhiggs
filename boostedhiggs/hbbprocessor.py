@@ -290,12 +290,10 @@ class HbbProcessor(processor.ProcessorABC):
             # Nominal JEC are already applied in data
             return self.process_shift(events, None)
 
-        import cachetools
-        jec_cache = cachetools.Cache(np.inf)
         nojer = "NOJER" if self._skipJER else ""
-        fatjets = fatjet_factory[f"{self._year}mc{nojer}"].build(add_jec_variables(events.FatJet, events.fixedGridRhoFastjetAll), jec_cache)
-        jets = jet_factory[f"{self._year}mc{nojer}"].build(add_jec_variables(events.Jet, events.fixedGridRhoFastjetAll), jec_cache)
-        met = met_factory.build(events.MET, jets, {})
+        fatjets = fatjet_factory[f"{self._year}mc{nojer}"].build(add_jec_variables(events.FatJet, events.fixedGridRhoFastjetAll))
+        jets = jet_factory[f"{self._year}mc{nojer}"].build(add_jec_variables(events.Jet, events.fixedGridRhoFastjetAll))
+        met = met_factory.build(events.MET, jets)
 
         shifts = [
             ({"Jet": jets, "FatJet": fatjets, "MET": met}, None),
